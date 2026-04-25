@@ -1,11 +1,12 @@
 version: '3'
 services:
-  go-mtauthserver:
+  mtauthserver:
     build:
       context: .
+      dockerfile: Dockerfile
     image: mtauthserver
     container_name: mtauthserver
     ports:
       - "8080:8080"
-    volumes:
-      - ./config.yaml:/app/config.yaml
+    env_file:
+      - .env
