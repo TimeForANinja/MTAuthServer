@@ -1,34 +1,53 @@
-# auth
+# MTAuthServer
 
-Simple JWT authentication service against Active Directory.
+Simple JWT authentication service against Active Directory / LDAP, built with APIFlask.
+
+## Features
+
+- LDAP / Active Directory authentication.
+- Recursive group lookup (nested groups).
+- JWT token generation with user groups and attributes.
+- Token introspection endpoint.
+- OpenAPI (Swagger) documentation.
+- High availability with LDAP server pooling.
 
 ## Configuration
 
 The application is configured using environment variables. You can create a `.env` file from the provided `.env.example`.
+All variables must be prefixed with `MAS_AUTH_`.
 
-### ENV parameters
+### Environment Variables
 
-| env variable             | Description                                                                                                               |
-|--------------------------|---------------------------------------------------------------------------------------------------------------------------|
-| MAS_AUTH_LDAP_SERVER1    | LDAP Server 1 (e.g., `ldaps://server:636`)                                                                                |
-| MAS_AUTH_LDAP_SERVER2    | LDAP Server 2 (optional)                                                                                                  |
-| MAS_AUTH_LDAP_TLSVERIFY1 | LDAP SSL Verify Server 1 (`true`/`false`)                                                                                 |
-| MAS_AUTH_LDAP_TLSVERIFY2 | LDAP SSL Verify Server 2 (`true`/`false`)                                                                                 |
-| MAS_AUTH_SEARCHBASE      | LDAP Searchbase (e.g., `OU=test,DC=example,DC=com`)                                                                       |
-| MAS_AUTH_USERFILTER      | Userfilter, use `{}` for username (e.g., `(sAMAccountName={})`)                                                           |
-| MAS_AUTH_GROUPFILTER     | Groupfilter, use `{}` for group name (e.g., `(&(objectClass=group)(member={}))`)                                          |
-| MAS_AUTH_TOKEN_LIFETIME  | JWT Token lifetime in seconds (e.g., `3600`)                                                                              |
-| MAS_AUTH_BINDDN          | LDAP BindDN of service user                                                                                               |
-| MAS_AUTH_BINDPASSWORD    | LDAP BindDN Password of service user                                                                                      |
-| MAS_AUTH_SECRETKEY       | Encryption Key for JWT Tokens                                                                                             |
+| Env Variable | Description | Default |
+|--------------|-------------|---------|
+| `MAS_AUTH_PORT` | Port the application listens on | `8080` |
+| `MAS_AUTH_LDAP_SERVERS` | Comma-separated list of LDAP servers (e.g., `ldaps://server1:636,ldap://server2`) | (Required) |
+| `MAS_AUTH_LDAP_TLS_VERIFY` | Whether to verify LDAP SSL certificates (`true`/`false`) | `false` |
+| `MAS_AUTH_BINDDN` | LDAP Bind DN for the service account | (Required) |
+| `MAS_AUTH_BINDPASSWORD` | LDAP Bind Password for the service account | (Required) |
+| `MAS_AUTH_SEARCHBASE` | LDAP Search Base (e.g., `OU=Users,DC=example,DC=com`) | (Required) |
+| `MAS_AUTH_USERFILTER` | LDAP filter for finding users, `{}` is replaced by username | `(sAMAccountName={})` |
+| `MAS_AUTH_GROUPFILTER` | LDAP filter for finding groups | `(&(objectClass=group)(member={}))` |
+| `MAS_AUTH_SECRETKEY` | Secret key used for signing JWT tokens | (Randomly generated if not set) |
+| `MAS_AUTH_TOKEN_LIFETIME` | JWT Token lifetime in seconds | `3600` |
+| `MAS_AUTH_PROXY_FIX` | Enable Werkzeug ProxyFix for running behind a reverse proxy | `true` |
+| `MAS_AUTH_DEBUG` | Enable debug mode | `false` |
 
-## RUN demo environment
+## API Documentation
 
-1. Copy `.env.example` to `.env` 
+Once the application is running, you can access the interactive API documentation at:
+- Swagger UI: `http://localhost:8080/docs`
+
+## Run with Docker Compose
+
+1. Copy `.env.example` to `.env`
 2. Modify `.env` with your settings.
-3. Launch `docker compose up`
+3. Launch:
+   ```bash
+   docker compose up -d
+   ```
 
-## Deployment on Kubernetes 
+## Deployment on Kubernetes
 
 ### deployment.yaml
 
@@ -36,96 +55,46 @@ The application is configured using environment variables. You can create a `.en
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: auth
-  namespace: nap
+  name: mtauthserver
   labels:
-    app: auth
+    app: mtauthserver
 spec:
-  replicas: 3
+  replicas: 2
   selector:
     matchLabels:
-      app: auth
+      app: mtauthserver
   template:
     metadata:
       labels:
-        app: auth
+        app: mtauthserver
     spec:
       containers:
-      - name: auth
-        image: your.repo.url/org/auth:v1.0.0
+      - name: mtauthserver
+        image: your.repo.url/mtauthserver:latest
         ports:
-        - containerPort: 4999
+        - containerPort: 8080
         env:
-          - name: MAS_AUTH_LDAP_SERVER1
-            value: "ldap://x.x.x.x:389"
-          - name: MAS_AUTH_LDAP_SERVER2
-            value: "ldap://x.x.x.x:389"
-          - name: MAS_AUTH_LDAP_TLSVERIFY1
-            value: "false"
-          - name: MAS_AUTH_LDAP_TLSVERIFY2
-            value: "false"
+          - name: MAS_AUTH_LDAP_SERVERS
+            value: "ldaps://dc1.example.com:636,ldaps://dc2.example.com:636"
+          - name: MAS_AUTH_LDAP_TLS_VERIFY
+            value: "true"
           - name: MAS_AUTH_SEARCHBASE
-            value: "OU=test,DC=xxxxx,DC=xxxx,DC=airbusds,DC=corp"
-          - name: MAS_AUTH_USERFILTER
-            value: "(sAMAccountName={})"
-          - name: MAS_AUTH_GROUPFILTER
-            value: "(&(objectClass=group)(member={}))"
-          - name: MAS_AUTH_TOKEN_LIFETIME
-            value: "3600"
-
+            value: "DC=example,DC=com"
           - name: MAS_AUTH_BINDDN
             valueFrom:
               secretKeyRef:
-                name: my-auth-secret
-                key: MAS_AUTH_BINDDN
+                name: mtauthserver-secrets
+                key: BINDDN
           - name: MAS_AUTH_BINDPASSWORD
             valueFrom:
               secretKeyRef:
-                name: my-auth-secret
-                key: MAS_AUTH_BINDPASSWORD
+                name: mtauthserver-secrets
+                key: BINDPASSWORD
           - name: MAS_AUTH_SECRETKEY
             valueFrom:
               secretKeyRef:
-                name: my-auth-secret
-                key: MAS_AUTH_SECRETKEY
-
-```
-
-
-### ingress.yaml
-
-```yaml
-apiVersion: networking.k8s.io/v1
-kind: Ingress
-metadata:
-  name: auth-ingress
-  namespace: nap
-  annotations:
-    kubernetes.io/ingress.class: nginx
-    nginx.ingress.kubernetes.io/backend-protocol: "HTTPS"
-    nginx.ingress.kubernetes.io/proxy-ssl-verify: "off"
-    nginx.ingress.kubernetes.io/affinity: "cookie"
-    nginx.ingress.kubernetes.io/session-cookie-name: "route"
-    nginx.ingress.kubernetes.io/session-cookie-hash: "sha1"
-    nginx.ingress.kubernetes.io/session-cookie-expire: "86400"
-    nginx.ingress.kubernetes.io/session-cookie-max-age: "86400"
-spec:
-  tls:
-  - hosts:
-    - auth.xxx.xxx.airbusds.corp
-    secretName: auth-tls
-  rules:
-  - host: auth.xxx.xxx.airbusds.corp
-    http:
-      paths:
-      - path: /
-        pathType: Prefix
-        backend:
-          service:
-            name: auth-service
-            port:
-              number: 443
-
+                name: mtauthserver-secrets
+                key: SECRETKEY
 ```
 
 ### service.yaml
@@ -134,37 +103,11 @@ spec:
 apiVersion: v1
 kind: Service
 metadata:
-  name: auth-service
-  namespace: nas
+  name: mtauthserver
 spec:
   ports:
-  - port: 443
-    targetPort: 4999
+  - port: 80
+    targetPort: 8080
   selector:
-    app: auth
-```
-
-### secrets.yaml
-
-Create a sealed secret with bitnami/sealedsecrets.
-
-```yaml
----
-apiVersion: bitnami.com/v1alpha1
-kind: SealedSecret
-metadata:
-  creationTimestamp: null
-  name: my-auth-secret
-  namespace: nap
-spec:
-  encryptedData:
-    MAS_AUTH_BINDDN: xxxxx
-    MAS_AUTH_BINDPASSWORD: xxxxx
-    MAS_AUTH_SECRETKEY: xxxxx
-  template:
-    metadata:
-      creationTimestamp: null
-      name: my-auth-secret
-      namespace: nap
-    type: Opaque
+    app: mtauthserver
 ```

@@ -1,0 +1,33 @@
+from ldap3 import Connection, RESTARTABLE
+from .client import get_user_dn
+from .connection import get_ldap_pool
+
+
+def check_credentials(conn: Connection, username: str, password: str) -> bool:
+    """
+    Check if the user can authenticate with the provided password.
+    Creates a temporary connection for the user to avoid rebinding the main connection.
+
+    :param conn: The main LDAP connection object
+    :param username: The username to authenticate
+    :param password: The password to authenticate with
+    :return: True if authentication succeeds, False otherwise
+    """
+    user_dn = get_user_dn(conn, username)
+    if not user_dn:
+        return False
+
+    try:
+        # Create a temporary connection to verify credentials
+        temp_conn = Connection(
+            get_ldap_pool(),
+            user=user_dn,
+            password=password,
+            auto_bind=True,
+            client_strategy=RESTARTABLE
+        )
+        # If auto_bind=True, and it didn't raise, then authentication succeeded
+        temp_conn.unbind()
+        return True
+    except Exception:
+        return False
