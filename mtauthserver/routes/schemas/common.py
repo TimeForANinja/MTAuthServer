@@ -10,6 +10,8 @@ from mtauthserver.routes.schemas.util import desc, to_field
 
 @dataclass
 class GenericOutput:
+    # TODO: check if we should move message to ErrorResponse
+    # If not double-check that we pass it to all calls
     """Every Output Schema should inherit from this class."""
     status: str = to_field(String(
         required=True,

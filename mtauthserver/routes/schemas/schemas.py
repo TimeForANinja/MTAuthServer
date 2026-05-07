@@ -35,6 +35,16 @@ IntrospectResponseSchema = class_schema(IntrospectResponse)()
 
 
 @dataclass
+class VerifyAppResponse(IntrospectResponse):
+    app: str = to_field(String(
+        required=True,
+        metadata=desc('App Scope'),
+    ))
+
+VerifyAppResponseSchema = class_schema(VerifyAppResponse)()
+
+
+@dataclass
 class AuthInput:
     username: str = to_field(String(
         required=True,
@@ -62,6 +72,7 @@ AuthResponseSchema = class_schema(AuthResponse)()
 class JWTHeaderInput:
     jwt_token: str = to_field(String(
         required=True,
+        # TODO: should we also set data_key="jwt-token" ??
         validate=[
             Length(min=5, max=10000),
             Regexp(
@@ -81,6 +92,11 @@ class AskAuthInput:
         required=True,
         validate=Regexp(r'^https?://', error='redirect_uri must start with http:// or https://'),
         metadata=desc('URL to redirect to after authentication.'),
+    ))
+    client_public_key: str = to_field(String(
+        required=True,
+        validate=Length(min=32),
+        metadata=desc('The clients public key for the backchannel grant.')
     ))
     scopes: tList[str] = to_field(List(
         String(),
@@ -130,11 +146,6 @@ class AuthDoneInput:
         validate=Length(min=5, max=250),
         metadata=desc('user password')
     ))
-    redirect_uri: str = to_field(String(
-        required=True,
-        validate=Regexp(r'^https?://', error='redirect_uri must start with http:// or https://'),
-        metadata=desc('URL to redirect to after authentication.'),
-    ))
     scopes: tList[str] = to_field(List(
         String(),
         load_default=[],
@@ -142,3 +153,26 @@ class AuthDoneInput:
     ))
 
 AuthDoneInputSchema = class_schema(AuthDoneInput)()
+
+
+@dataclass
+class TokenExchangeInput:
+    grant: str = to_field(String(
+        required=True,
+        validate=Length(min=5, max=10000),
+        metadata=desc('The grant received from the authorize endpoint.')
+    ))
+    challenge: str = to_field(String(
+        required=True,
+        validate=Length(min=32),
+        metadata=desc('The grant signed/encrypted with the clients private key.')
+    ))
+
+
+@dataclass
+class TokenExchangeResponse(AuthResponse):
+    pass
+
+
+TokenExchangeInputSchema = class_schema(TokenExchangeInput)()
+TokenExchangeResponseSchema = class_schema(TokenExchangeResponse)()

@@ -1,5 +1,3 @@
-import secrets
-
 from apiflask import APIFlask
 
 

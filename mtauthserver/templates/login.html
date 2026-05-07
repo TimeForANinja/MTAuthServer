@@ -23,10 +23,6 @@
             <div class="error">{{ error }}</div>
         {% endif %}
         <form method="POST">
-            <input type="hidden" name="redirect_uri" value="{{ redirect_uri }}">
-            {% for scope in scopes %}
-                <input type="hidden" name="scopes" value="{{ scope }}">
-            {% endfor %}
             <div class="form-group">
                 <label for="username">Username</label>
                 <input type="text" id="username" name="username" required autofocus>

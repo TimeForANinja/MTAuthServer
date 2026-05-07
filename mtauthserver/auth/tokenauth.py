@@ -8,12 +8,13 @@ from .user import User
 
 def get_auth():
     # singleton pattern for getting the auth object using 'g'
+    # TODO: do we need a "with app.app_context():"??
     if 'auth_singleton' not in g:
-        g.auth_singleton = build_flask_auth()
+        g.auth_singleton = _build_flask_auth()
     return g.auth_singleton
 
 
-def build_flask_auth():
+def _build_flask_auth():
     """
     Utility class to build the HTTPTokenAuth object.
     The object is required to use the APIFlask-integrated authentication mechanism.

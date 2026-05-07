@@ -55,7 +55,8 @@ openssl genrsa -out private.pem 2048
 openssl rsa -in private.pem -pubout -out public.pem
 ```
 
-When setting `MAS_AUTH_JWT_PRIVATE_KEY` and `MAS_AUTH_JWT_PUBLIC_KEY` in your `.env` file or environment, make sure to include the full PEM content, including the header and footer. If using a `.env` file, you can use `\n` for newlines or quote the entire string.
+You can then copy-paste the file content as `MAS_AUTH_JWT_PRIVATE_KEY` and `MAS_AUTH_JWT_PUBLIC_KEY` into your `.env` file or environment.
+`.env`-Files natively support multi-line text.
 
 ## MTAuthClient Usage
 

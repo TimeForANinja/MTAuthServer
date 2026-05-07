@@ -1,7 +1,11 @@
+import urllib
 import requests
 import jwt
+import datetime
 from typing import Optional, Dict, Any, List
 from dataclasses import dataclass
+
+from mtauthserver.auth.rsa_util import minimize_rsa_key
 
 
 @dataclass
@@ -14,14 +18,16 @@ class MTAuthUser:
 
 
 class MTAuthClient:
-    def __init__(self, server_url: str):
+    def __init__(self, server_url: str, client_private_key: Optional[str] = None):
         """
         Initialize the MTAuthClient.
 
         :param server_url: The base URL of the MTAuthServer (e.g., https://auth.example.com)
+        :param client_private_key: The client's private key for signing challenges.
         """
         self.server_url = server_url.rstrip('/')
         self.public_key = None
+        self.client_private_key = client_private_key
 
     def _fetch_public_key(self) -> str:
         """
@@ -42,19 +48,56 @@ class MTAuthClient:
             self.public_key = self._fetch_public_key()
         return self.public_key
 
-    def get_authorize_url(self, redirect_uri: str, scopes: List[str] = None) -> str:
+    def get_authorize_url(self, redirect_uri: str, client_public_key: str, scopes: List[str] = None) -> str:
         """
         Generate the URL to redirect the user to for authorization.
 
         :param redirect_uri: The URI to redirect back to after login.
+        :param client_public_key: The clients public key.
         :param scopes: Optional list of scopes to request.
         :return: The authorization URL.
         """
-        url = f"{self.server_url}/api/v2/authorize?redirect_uri={redirect_uri}"
-        if scopes:
-            for scope in scopes:
-                url += f"&scopes={scope}"
+        query = urllib.parse.urlencode({
+            "redirect_uri": redirect_uri,
+            "client_public_key": minimize_rsa_key(client_public_key),
+        })
+        for s in scopes:
+            query += f"&scopes={urllib.parse.quote(s)}"
+        url = f"{self.server_url}/api/v2/authorize?{query}"
         return url
+
+    def exchange_token(self, grant: str) -> Optional[str]:
+        """
+        Exchange a grant for an access token.
+
+        :param grant: The grant received from the authorize endpoint.
+        :return: The new JWT token if successful, None otherwise.
+        """
+        if not self.client_private_key:
+            raise Exception("Client private key is required for token exchange")
+
+        try:
+            # Create challenge: sign the grant with client's private key
+            challenge = jwt.encode(
+                {"grant": grant, "exp": datetime.datetime.now(tz=datetime.timezone.utc) + datetime.timedelta(seconds=30)},
+                self.client_private_key,
+                algorithm="RS256"
+            )
+
+            response = requests.post(
+                f"{self.server_url}/api/v2/token",
+                json={
+                    "grant": grant,
+                    "challenge": challenge
+                }
+            )
+            response.raise_for_status()
+            data = response.json()
+            if data.get("status") == "success":
+                return data.get("token")
+            return None
+        except Exception:
+            return None
 
     def rekey(self, token: str) -> Optional[str]:
         """

@@ -66,5 +66,5 @@ def decode_token(token: str) -> Optional[User]:
     except jwt.InvalidTokenError as e:
         logging.error(f"Invalid token: {e}")
     except Exception as e:
-        logging.error(f"Error validation error: {e}")
+        logging.error(f"Error while validating JWT: {e}")
     return None

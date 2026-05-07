@@ -1,4 +1,6 @@
 import logging
+import re
+
 from flask import request
 from apiflask import APIBlueprint, APIFlask
 
@@ -6,14 +8,15 @@ from mtauthserver.ldap import check_credentials, get_ldap_connection, fetch_user
 from mtauthserver.auth import decode_token, generate_token, User
 from mtauthserver.routes.schemas.schemas import AuthResponseSchema, IntrospectResponseSchema, IntrospectResponse, \
     IntrospectInput, \
-    IntrospectInputSchema, AuthResponse, AuthInputSchema, AuthInput, JWTHeaderInputSchema
+    IntrospectInputSchema, AuthResponse, AuthInputSchema, AuthInput, JWTHeaderInputSchema, VerifyAppResponse, \
+    VerifyAppResponseSchema
 from mtauthserver.routes.schemas.common import ErrorResponseSchema, ErrorResponse, OutCanError
 from mtauthserver.routes.schemas.schemas import JWTHeaderInput
-from routes.schemas.util import resp_wrapper
+from mtauthserver.routes.schemas.util import resp_wrapper
 
 
 def register_routes_v1(app: APIFlask) -> None:
-    api = APIBlueprint('api_v1', __name__, tag="API v1")
+    api = APIBlueprint('api_v1', __name__, url_prefix="/api/v1", tag="API v1")
 
     @api.post("/auth")
     @api.input(AuthInputSchema, location="json", arg_name="auth_data")
@@ -44,6 +47,7 @@ def register_routes_v1(app: APIFlask) -> None:
                 )
             else:
                 logging.warning(f"Login attempt from: {request.remote_addr} failed.")
+                # TODO: this is failing at work, and we need to explicitly typecast the response to dict
                 return ErrorResponse("Authentication failed"), 401
         except Exception as e:
             logging.error(f"Error during authentication: {e}")
@@ -77,13 +81,14 @@ def register_routes_v1(app: APIFlask) -> None:
     @api.get("/verify/<string:app_name>")
     @api.input(JWTHeaderInputSchema, location="headers", arg_name="token")
     @api.doc(responses={
-        200: resp_wrapper("Successfully Request", IntrospectResponseSchema),
+        200: resp_wrapper("Successfully Request", VerifyAppResponseSchema),
         401: resp_wrapper("Invalid Authentication Provided", ErrorResponseSchema),
     })
-    def verify_app(app_name: str, token: JWTHeaderInput) -> OutCanError[IntrospectResponse]:
+    def verify_app(app_name: str, token: JWTHeaderInput) -> OutCanError[VerifyAppResponse]:
         """
         Verify JWT token
         """
+        # TODO: use the build-in http header auth from our auth module
         # remove the bearer prefix
         raw_token = token.jwt_token.replace("Bearer ", "")
         decoded_token = decode_token(raw_token)
@@ -92,12 +97,17 @@ def register_routes_v1(app: APIFlask) -> None:
             logging.warning(f"Invalid login attempt from: {request.remote_addr}")
             return ErrorResponse("Invalid token"), 401
 
+        if not re.match(r'^[A-Za-z_-]+', app_name):
+            logging.warning(f"Invalid app name from: {request.remote_addr} (\"{app_name}\")")
+            return ErrorResponse("Invalid app name"), 401
+
         logging.info(f"Successfully Verify from: {request.remote_addr} for user: {decoded_token.username}")
-        return IntrospectResponse(
+        return VerifyAppResponse(
             username=decoded_token.username,
             groups=decoded_token.groups,
             status="valid",
-            attributes=decoded_token.attributes
+            attributes=decoded_token.attributes,
+            app=app_name,
         )
 
     app.register_blueprint(api)
