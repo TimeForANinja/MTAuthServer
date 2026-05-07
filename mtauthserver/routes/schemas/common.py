@@ -17,6 +17,11 @@ class GenericOutput:
         metadata=desc("Status of the response, e.g., 'success'"),
     ))
 
+    message: str = to_field(String(
+        required=True,
+        metadata=desc("Message of the response"),
+    ))
+
 
 T = TypeVar("T")
 # response can be T, an Error or an Error + Status Code as Tuple
@@ -25,7 +30,7 @@ type OutCanError[T] = T | ErrorResponse | Tuple[ErrorResponse, int]
 @dataclass
 class ErrorResponse(GenericOutput):
     def __init__(self, error: str):
-        self.message = error
         self.status = "failed"
+        self.message = error
 
 ErrorResponseSchema = class_schema(ErrorResponse)()

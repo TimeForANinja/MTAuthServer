@@ -73,3 +73,62 @@ class JWTHeaderInput:
     ))
 
 JWTHeaderInputSchema = class_schema(JWTHeaderInput)()
+
+
+@dataclass
+class AskAuthInput:
+    redirect_uri: str = to_field(String(
+        required=True,
+        validate=Regexp(r'^https?://', error='redirect_uri must start with http:// or https://'),
+        metadata=desc('URL to redirect to after authentication.'),
+    ))
+
+AskAuthInputSchema = class_schema(AskAuthInput)()
+
+@dataclass
+class PublicKeyResponse(GenericOutput):
+    public_key: str = to_field(String(
+        required=True,
+        metadata=desc('The public key for JWT validation')
+    ))
+
+PublicKeyResponseSchema = class_schema(PublicKeyResponse)()
+
+
+@dataclass
+class RekeyInput:
+    token: str = to_field(String(
+        required=True,
+        validate=Length(min=5, max=10000),
+        metadata=desc('Expired JWT token to renew')
+    ))
+
+RekeyInputSchema = class_schema(RekeyInput)()
+
+
+@dataclass
+class RekeyResponse(AuthResponse):
+    pass
+
+RekeyResponseSchema = class_schema(RekeyResponse)()
+
+
+@dataclass
+class AuthDoneInput:
+    username: str = to_field(String(
+        required=True,
+        validate=Length(min=5, max=50),
+        metadata=desc('Username')
+    ))
+    password: str = to_field(String(
+        required=True,
+        validate=Length(min=5, max=250),
+        metadata=desc('user password')
+    ))
+    redirect_uri: str = to_field(String(
+        required=True,
+        validate=Regexp(r'^https?://', error='redirect_uri must start with http:// or https://'),
+        metadata=desc('URL to redirect to after authentication.'),
+    ))
+
+AuthDoneInputSchema = class_schema(AuthDoneInput)()

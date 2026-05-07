@@ -7,11 +7,12 @@ from typing import Optional
 from mtauthserver.auth.user import User
 
 
-def generate_token(user: User) -> str:
+def generate_token(user: User, rekey_count: int = 0) -> str:
     """
     Generate a JWT token for the given user.
 
     :param user: The User object to encode.
+    :param rekey_count: Number of times this token has been renewed.
     :return: The encoded JWT token.
     """
     t_now = datetime.datetime.now(tz=datetime.timezone.utc)
@@ -22,12 +23,13 @@ def generate_token(user: User) -> str:
         "groups": user.groups,
         "attributes": user.attributes,
         "exp": t_exp,
+        "rekey_count": rekey_count,
     }
 
     token = jwt.encode(
         payload,
-        current_app.config['SECRETKEY'],
-        algorithm="HS256",
+        current_app.config['JWT_PRIVATE_KEY'],
+        algorithm="RS256",
     )
     return token
 
@@ -48,8 +50,8 @@ def decode_token(token: str) -> Optional[User]:
 
         decoded_token = jwt.decode(
             token_val,
-            current_app.config['SECRETKEY'],
-            algorithms=["HS256"],
+            current_app.config['JWT_PUBLIC_KEY'],
+            algorithms=["RS256"],
         )
 
         return User(

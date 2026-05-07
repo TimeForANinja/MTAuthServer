@@ -1,5 +1,7 @@
 from dataclasses import field
 from typing import Dict, Any
+
+from apiflask import Schema
 from apiflask.fields import Field as tField
 
 
@@ -25,3 +27,16 @@ def to_field(f: tField, **kwargs):
         },
         **kwargs,
     )
+
+def resp_wrapper(description: str, schema: Schema) -> Dict:
+    """
+    Build a response schema for the API.
+    """
+    return {
+        "description": description,
+        "content": {
+            "application/json": {
+                "schema": schema
+            }
+        }
+    }

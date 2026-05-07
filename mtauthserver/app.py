@@ -14,6 +14,7 @@ def create_app() -> APIFlask:
         "MTAuthServer",
         version="1.1.0",
         docs_path="/docs",
+        template_folder="templates",
     )
 
     # use offline swagger ui

@@ -9,11 +9,11 @@ def validate_and_convert(app: APIFlask):
         'LDAP_TLS_VERIFY',
         'DEBUG', 'PROXY_FIX'
     ]
-    int_keys = ['TOKEN_LIFETIME', 'PORT']
+    int_keys = ['TOKEN_LIFETIME', 'PORT', 'REKEY_MAX_COUNT', 'REKEY_MAX_TIME_DIFF']
     str_keys = [
         'BINDDN', 'BINDPASSWORD',
         'SEARCHBASE', 'USERFILTER', 'GROUPFILTER',
-        'SECRETKEY'
+        'JWT_PRIVATE_KEY', 'JWT_PUBLIC_KEY'
     ]
     str_list_keys = ['LDAP_SERVERS']
 
@@ -63,8 +63,13 @@ def load_config(app: APIFlask):
         GROUPFILTER='(&(objectClass=group)(member={}))',
 
         # jwt
-        SECRETKEY=secrets.token_urlsafe(64),
         TOKEN_LIFETIME=3600,
+        JWT_PRIVATE_KEY=None,
+        JWT_PUBLIC_KEY=None,
+
+        # rekeying
+        REKEY_MAX_COUNT=5,
+        REKEY_MAX_TIME_DIFF=86400,  # 24 hours
 
         DEBUG=False,
     )

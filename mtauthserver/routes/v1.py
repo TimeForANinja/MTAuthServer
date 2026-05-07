@@ -1,27 +1,16 @@
 import logging
 from flask import request
-from typing import Dict
-from apiflask import APIBlueprint, APIFlask, Schema
+from apiflask import APIBlueprint, APIFlask
 
-from ldap import check_credentials
+from mtauthserver.ldap import check_credentials
 from mtauthserver.auth import decode_token, generate_token, User
 from mtauthserver.ldap import get_ldap_connection, get_groups_of_user, get_user_attributes
 from mtauthserver.routes.schemas.schemas import AuthResponseSchema, IntrospectResponseSchema, IntrospectResponse, \
     IntrospectInput, \
     IntrospectInputSchema, AuthResponse, AuthInputSchema, AuthInput, JWTHeaderInputSchema
-from routes.schemas.common import ErrorResponseSchema, ErrorResponse, OutCanError
-from routes.schemas.schemas import JWTHeaderInput
-
-
-def resp_wrapper(description: str, schema: Schema) -> Dict:
-    return {
-        "description": description,
-        "content": {
-            "application/json": {
-                "schema": schema
-            }
-        }
-    }
+from mtauthserver.routes.schemas.common import ErrorResponseSchema, ErrorResponse, OutCanError
+from mtauthserver.routes.schemas.schemas import JWTHeaderInput
+from routes.schemas.util import resp_wrapper
 
 
 def register_routes_v1(app: APIFlask) -> None:
