@@ -1,8 +1,9 @@
 import logging
+import os
 from dataclasses import asdict
-from typing import Tuple, Dict
-
+from typing import Tuple, Dict, cast
 from apiflask import APIFlask
+from flask import send_from_directory
 
 from mtauthserver.routes.schemas.common import ErrorResponse
 
@@ -19,7 +20,17 @@ def register_routes_common(app: APIFlask) -> None:
         })
         return asdict(ErrorResponse(error.message)), error.status_code, error.headers
 
+    # Serve index.html for the root route
+    @app.get("/", defaults={"path": ""})
+    @app.get("/<path:path>")
+    def catch_all(path: str):
+        """Catch-all route for non-API routes."""
+        static_folder = os.path.abspath(cast(str, app.static_folder))
+        static_file = os.path.join(static_folder, path)
 
-    @app.get("/favicon.ico")
-    def favicon():
-        return "", 204
+        # Check if the requested static file exists
+        if os.path.isfile(static_file):
+            return send_from_directory(static_folder, path)
+
+        # Fallback to serving index.html
+        return send_from_directory(static_folder, "index.html")

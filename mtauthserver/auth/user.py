@@ -10,6 +10,7 @@ class User:
     username: str
     groups: List[str]
     attributes: Dict[str, Any]
+    scopes: List[str] = None
 
     def to_dict(self) -> Dict[str, Any]:
         return asdict(self)

@@ -22,6 +22,7 @@ def generate_token(user: User, rekey_count: int = 0) -> str:
         "username": user.username,
         "groups": user.groups,
         "attributes": user.attributes,
+        "scopes": user.scopes,
         "exp": t_exp,
         "rekey_count": rekey_count,
     }
@@ -57,7 +58,8 @@ def decode_token(token: str) -> Optional[User]:
         return User(
             username=decoded_token.get("username"),
             groups=decoded_token.get("groups", []),
-            attributes=decoded_token.get("attributes", {})
+            attributes=decoded_token.get("attributes", {}),
+            scopes=decoded_token.get("scopes")
         )
     except jwt.ExpiredSignatureError:
         logging.error("Topen expired")

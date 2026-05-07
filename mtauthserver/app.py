@@ -15,6 +15,7 @@ def create_app() -> APIFlask:
         version="1.1.0",
         docs_path="/docs",
         template_folder="templates",
+        static_folder="./static",
     )
 
     # use offline swagger ui

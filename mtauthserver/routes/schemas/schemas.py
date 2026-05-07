@@ -62,7 +62,7 @@ AuthResponseSchema = class_schema(AuthResponse)()
 class JWTHeaderInput:
     jwt_token: str = to_field(String(
         required=True,
-        verify=[
+        validate=[
             Length(min=5, max=10000),
             Regexp(
                 r'^Bearer [A-Za-z0-9-_]+\.[A-Za-z0-9-_]+\.[A-Za-z0-9-_]+$',
@@ -81,6 +81,11 @@ class AskAuthInput:
         required=True,
         validate=Regexp(r'^https?://', error='redirect_uri must start with http:// or https://'),
         metadata=desc('URL to redirect to after authentication.'),
+    ))
+    scopes: tList[str] = to_field(List(
+        String(),
+        load_default=[],
+        metadata=desc('List of scopes to ask for')
     ))
 
 AskAuthInputSchema = class_schema(AskAuthInput)()
@@ -129,6 +134,11 @@ class AuthDoneInput:
         required=True,
         validate=Regexp(r'^https?://', error='redirect_uri must start with http:// or https://'),
         metadata=desc('URL to redirect to after authentication.'),
+    ))
+    scopes: tList[str] = to_field(List(
+        String(),
+        load_default=[],
+        metadata=desc('List of scopes requested')
     ))
 
 AuthDoneInputSchema = class_schema(AuthDoneInput)()

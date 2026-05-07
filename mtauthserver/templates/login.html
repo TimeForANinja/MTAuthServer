@@ -22,8 +22,11 @@
         {% if error %}
             <div class="error">{{ error }}</div>
         {% endif %}
-        <form method="POST" action="/api/v2/authorize">
+        <form method="POST">
             <input type="hidden" name="redirect_uri" value="{{ redirect_uri }}">
+            {% for scope in scopes %}
+                <input type="hidden" name="scopes" value="{{ scope }}">
+            {% endfor %}
             <div class="form-group">
                 <label for="username">Username</label>
                 <input type="text" id="username" name="username" required autofocus>
@@ -32,6 +35,23 @@
                 <label for="password">Password</label>
                 <input type="password" id="password" name="password" required>
             </div>
+            {% if scopes %}
+            <div class="form-group">
+                <label>Requested Permissions:</label>
+                <ul style="text-align: left; color: #4b4f56;">
+                    {% for scope in scopes %}
+                        <li>{{ scope }}</li>
+                    {% endfor %}
+                </ul>
+            </div>
+            {% else %}
+            <div>
+                <label>Requested Permissions:</label>
+                <ul style="text-align: left; color: #4b4f56;">
+                    <li>No permissions requested.</li>
+                </ul>
+            </div>
+            {% endif %}
             <button type="submit">Log In</button>
         </form>
     </div>

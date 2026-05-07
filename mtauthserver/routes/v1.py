@@ -2,9 +2,8 @@ import logging
 from flask import request
 from apiflask import APIBlueprint, APIFlask
 
-from mtauthserver.ldap import check_credentials
+from mtauthserver.ldap import check_credentials, get_ldap_connection, fetch_user_data
 from mtauthserver.auth import decode_token, generate_token, User
-from mtauthserver.ldap import get_ldap_connection, get_groups_of_user, get_user_attributes
 from mtauthserver.routes.schemas.schemas import AuthResponseSchema, IntrospectResponseSchema, IntrospectResponse, \
     IntrospectInput, \
     IntrospectInputSchema, AuthResponse, AuthInputSchema, AuthInput, JWTHeaderInputSchema
@@ -30,8 +29,7 @@ def register_routes_v1(app: APIFlask) -> None:
         try:
             conn = get_ldap_connection()
             if check_credentials(conn, auth_data.username, auth_data.password):
-                groups = get_groups_of_user(conn, auth_data.username)
-                attributes = get_user_attributes(conn, auth_data.username)
+                groups, attributes = fetch_user_data(auth_data.username)
 
                 user = User(username=auth_data.username, groups=groups, attributes=attributes)
                 token = generate_token(user)

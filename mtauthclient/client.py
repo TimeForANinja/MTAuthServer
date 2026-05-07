@@ -10,6 +10,7 @@ class MTAuthUser:
     username: str
     groups: List[str]
     attributes: Dict[str, Any]
+    scopes: Optional[List[str]] = None
 
 
 class MTAuthClient:
@@ -41,14 +42,43 @@ class MTAuthClient:
             self.public_key = self._fetch_public_key()
         return self.public_key
 
-    def get_authorize_url(self, redirect_uri: str) -> str:
+    def get_authorize_url(self, redirect_uri: str, scopes: List[str] = None) -> str:
         """
         Generate the URL to redirect the user to for authorization.
 
         :param redirect_uri: The URI to redirect back to after login.
+        :param scopes: Optional list of scopes to request.
         :return: The authorization URL.
         """
-        return f"{self.server_url}/api/v2/authorize?redirect_uri={redirect_uri}"
+        url = f"{self.server_url}/api/v2/authorize?redirect_uri={redirect_uri}"
+        if scopes:
+            for scope in scopes:
+                url += f"&scopes={scope}"
+        return url
+
+    def rekey(self, token: str) -> Optional[str]:
+        """
+        Renew an expired token.
+
+        :param token: The expired JWT token.
+        :return: The new JWT token if successful, None otherwise.
+        """
+        try:
+            # Handle both raw tokens and Bearer tokens
+            if token.startswith("Bearer "):
+                token = token[7:]
+
+            response = requests.post(
+                f"{self.server_url}/api/v2/rekey",
+                json={"token": token}
+            )
+            response.raise_for_status()
+            data = response.json()
+            if data.get("status") == "success":
+                return data.get("token")
+            return None
+        except Exception:
+            return None
 
     def verify_token(self, token: str) -> Optional[MTAuthUser]:
         """
@@ -71,7 +101,8 @@ class MTAuthClient:
             return MTAuthUser(
                 username=decoded.get("username"),
                 groups=decoded.get("groups", []),
-                attributes=decoded.get("attributes", {})
+                attributes=decoded.get("attributes", {}),
+                scopes=decoded.get("scopes")
             )
         except Exception:
             return None

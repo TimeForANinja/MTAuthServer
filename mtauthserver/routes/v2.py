@@ -1,34 +1,43 @@
 import logging
-from typing import Union
-
 import jwt
 import datetime
+from typing import Union, List, Optional
 from flask import render_template, request, redirect, current_app, Response
 from apiflask import APIBlueprint, APIFlask
 from marshmallow import ValidationError
 
 from mtauthserver.auth import generate_token, User
-from mtauthserver.ldap import get_ldap_connection, check_credentials, get_groups_of_user, get_user_attributes
+from mtauthserver.ldap import get_ldap_connection, check_credentials, fetch_user_data
 from routes.schemas.common import OutCanError, ErrorResponse, ErrorResponseSchema
 from routes.schemas.schemas import AskAuthInputSchema, AskAuthInput, AuthDoneInputSchema, AuthDoneInput, \
     PublicKeyResponseSchema, RekeyResponseSchema, RekeyInputSchema, RekeyInput, PublicKeyResponse, RekeyResponse
 from routes.schemas.util import resp_wrapper
 
 
+def _render_login(uri: str, scopes: List[str], error: Optional[str] = None) -> str:
+    return render_template(
+        'login.html',
+        redirect_uri=uri,
+        scopes=scopes,
+        error=error
+    )
+
+
 def register_routes_v2(app: APIFlask) -> None:
     api = APIBlueprint('api_v2', __name__, url_prefix='/api/v2', tag="API v2")
 
     @api.get('/authorize')
-    @api.input(AskAuthInputSchema, location="query", arg_name="auth_data")
-    def authorize(auth_data: AskAuthInput) -> str:
+    @api.input(AskAuthInputSchema, location="query", arg_name="auth_query")
+    def authorize(auth_query: AskAuthInput) -> str:
         """
         The authorization endpoint where the user is redirected to.
         """
-        return render_template('login.html', redirect_uri=auth_data.redirect_uri)
+        return _render_login(auth_query.redirect_uri, auth_query.scopes)
 
     @api.post('/authorize')
+    @api.input(AskAuthInputSchema, location="query", arg_name="auth_query")
     @api.input(AuthDoneInputSchema, location="form", arg_name="raw_auth_data", validation=False)
-    def login(raw_auth_data: AuthDoneInput) -> Union[str, Response]:
+    def login(auth_query: AskAuthInput, raw_auth_data: AuthDoneInput) -> Union[str, Response]:
         """
         Handle the login form submission.
         """
@@ -39,10 +48,12 @@ def register_routes_v2(app: APIFlask) -> None:
 
             conn = get_ldap_connection()
             if check_credentials(conn, auth_data.username, auth_data.password):
-                groups = get_groups_of_user(conn, auth_data.username)
-                attributes = get_user_attributes(conn, auth_data.username)
+                groups, attributes = fetch_user_data(auth_data.username)
 
-                user = User(username=auth_data.username, groups=groups, attributes=attributes)
+                # filter scopes: user can only have a permission that is identical to a group he is in
+                user_scopes = [s for s in auth_data.scopes if s in groups]
+
+                user = User(username=auth_data.username, groups=groups, attributes=attributes, scopes=user_scopes)
                 token = generate_token(user, 0)
 
                 logging.info(f"V2 Login successful for user: {auth_data.username} from {request.remote_addr}")
@@ -50,13 +61,13 @@ def register_routes_v2(app: APIFlask) -> None:
                 return redirect(f"{auth_data.redirect_uri}?token={token}")
             else:
                 logging.warning(f"V2 Login failed for user: {auth_data.username} from {request.remote_addr}")
-                return render_template('login.html', redirect_uri=auth_data.redirect_uri, error="Invalid credentials")
+                return _render_login(auth_query.redirect_uri, auth_query.scopes, error="Invalid credentials")
         except ValidationError as e:
             logging.error(f"Validation error during V2 authentication: {e}")
-            return render_template('login.html', redirect_uri="asdf", error="Invalid login data")
+            return _render_login(auth_query.redirect_uri, auth_query.scopes, error="Invalid login data")
         except Exception as e:
             logging.error(f"Error during V2 authentication: {e}")
-            return render_template('login.html', redirect_uri="asdf", error="Internal server error")
+            return _render_login(auth_query.redirect_uri, auth_query.scopes, error="Internal server error")
 
     @api.get('/public-key')
     @api.output(PublicKeyResponseSchema)
@@ -118,11 +129,16 @@ def register_routes_v2(app: APIFlask) -> None:
             except jwt.InvalidTokenError as e:
                 return ErrorResponse(f"Invalid token signature: {e}"), 400
 
-            # Generate new token
+            # Generate new token, with updated groups, attributes and scopes
+            groups, attributes = fetch_user_data(payload.get("username"))
+            # user must still be a member of the group
+            user_scopes = [s for s in payload.get("scopes") if s in groups]
+
             user = User(
                 username=payload.get("username"),
-                groups=payload.get("groups", []),
-                attributes=payload.get("attributes", {})
+                groups=groups,
+                attributes=attributes,
+                scopes=user_scopes
             )
 
             # We need to pass rekey_count + 1 to generate_token
