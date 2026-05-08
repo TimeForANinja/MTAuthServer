@@ -1,0 +1,9 @@
+# https://mokapi.io/resources/tutorials/mock-ldap-authentication-in-node#:~:text=Step%201%3A%20Set%20Up%20a%20Mock%20LDAP%20Server%20with%20Mokapi
+
+ldap: 1.0.0
+info:
+  title: Mokapi's LDAP Server
+  description: An example configuration to mock an LDAP server
+host: :389
+files:
+  - /demo-ldap/users.ldif

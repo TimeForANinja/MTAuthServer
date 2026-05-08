@@ -67,7 +67,8 @@ from mtauthclient import MTAuthClient
 
 # Initialize the client
 auth = MTAuthClient(
-    server_url="https://auth.example.com"
+    server_url="https://auth.example.com",
+   ...
 )
 
 # 1. Redirect user to MTAuthServer for login
@@ -84,6 +85,10 @@ if user:
 else:
     print("Invalid token")
 ```
+
+We do however also provide two full sample applications:
+`authclient/sample_api.py` - Protect your API Routes using the MTAuthClient.
+`authclient/sample_frontend.py` - Authenticating a User and Fetching an API Token using the MTAuthClient.
 
 ## Run with Docker Compose
 
@@ -163,3 +168,9 @@ spec:
   selector:
     app: mtauthserver
 ```
+
+## Development
+
+To make it easier to develop and test, we've included a Docker Compose file and mock LDAP for local development.
+Run docker-compose.dev.yml to start the mock LDAP server and the application.
+Or only start the mock LDAP via the docker-compose, and manually run the application using the `.env.demo` file.

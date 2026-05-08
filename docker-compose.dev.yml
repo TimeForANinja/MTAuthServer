@@ -1,0 +1,23 @@
+version: '3'
+services:
+  mtauthserver:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: mtauthserver
+    ports:
+      - "8080:8080"
+    env_file:
+      - .env.demo
+    depends_on:
+      - ldap
+
+  ldap:
+    image: mokapi/mokapi
+    container_name: mtauthserver-ldap
+    ports:
+      - "389:389"
+    volumes:
+      - ./demo-ldap:/demo-ldap
+    entrypoint: "mokapi"
+    command: ["/demo-ldap/ldap.yaml"]

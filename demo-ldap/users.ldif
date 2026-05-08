@@ -1,0 +1,63 @@
+dn: dc=mokapi,dc=io
+objectClass: top
+objectClass: domain
+dc: mokapi
+distinguishedName: dc=mokapi,dc=io
+
+dn: ou=Users,dc=mokapi,dc=io
+objectClass: top
+objectClass: organizationalUnit
+ou: Users
+distinguishedName: ou=Users,dc=mokapi,dc=io
+
+dn: ou=Groups,dc=mokapi,dc=io
+objectClass: top
+objectClass: organizationalUnit
+ou: Groups
+distinguishedName: ou=Groups,dc=mokapi,dc=io
+
+dn: cn=Admins,ou=Groups,dc=mokapi,dc=io
+objectClass: top
+objectClass: group
+cn: Admins
+member: cn=Alice Williams,ou=Users,dc=mokapi,dc=io
+distinguishedName: cn=Admins,ou=Groups,dc=mokapi,dc=io
+
+dn: cn=Users,ou=Groups,dc=mokapi,dc=io
+objectClass: top
+objectClass: group
+cn: Users
+member: cn=Alice Williams,ou=Users,dc=mokapi,dc=io
+member: cn=Bob Miller,ou=Users,dc=mokapi,dc=io
+distinguishedName: cn=Users,ou=Groups,dc=mokapi,dc=io
+
+dn: cn=Alice Williams,ou=Users,dc=mokapi,dc=io
+objectClass: top
+objectClass: person
+objectClass: organizationalPerson
+objectClass: user
+cn: Alice Williams
+sn: Williams
+givenName: Alice
+displayName: Alice Williams
+mail: alice@mokapi.io
+sAMAccountName: awilliams
+userPassword: foo123
+memberOf: cn=Admins,ou=Groups,dc=mokapi,dc=io
+memberOf: cn=Users,ou=Groups,dc=mokapi,dc=io
+distinguishedName: cn=Alice Williams,ou=Users,dc=mokapi,dc=io
+
+dn: cn=Bob Miller,ou=Users,dc=mokapi,dc=io
+objectClass: top
+objectClass: person
+objectClass: organizationalPerson
+objectClass: user
+cn: Bob Miller
+sn: Miller
+givenName: Bob
+displayName: Bob Miller
+mail: bob@mokapi.io
+sAMAccountName: bmiller
+userPassword: bar123
+memberOf: cn=Users,ou=Groups,dc=mokapi,dc=io
+distinguishedName: cn=Bob Miller,ou=Users,dc=mokapi,dc=io
