@@ -1,20 +1,20 @@
 from flask import g
 from apiflask import HTTPTokenAuth, APIFlask
-from .jwt import decode_token
 from typing import Optional, List
 
+from .jwt import decode_token
 from .user import User
 
 
-def get_auth():
+def get_auth(app: APIFlask):
     # singleton pattern for getting the auth object using 'g'
-    # TODO: do we need a "with app.app_context():"??
-    if 'auth_singleton' not in g:
-        g.auth_singleton = _build_flask_auth()
-    return g.auth_singleton
+    with app.app_context():
+        if 'auth_singleton' not in g:
+            g.auth_singleton = build_flask_auth()
+        return g.auth_singleton
 
 
-def _build_flask_auth():
+def build_flask_auth():
     """
     Utility class to build the HTTPTokenAuth object.
     The object is required to use the APIFlask-integrated authentication mechanism.
@@ -23,6 +23,8 @@ def _build_flask_auth():
 
     auth = HTTPTokenAuth(
         scheme="Bearer",
+        # TODO: check if the legacy API used "jwt-token" or "Authorization"
+        header="Authorization",
     )
 
     @auth.get_user_roles
@@ -43,6 +45,8 @@ def _build_flask_auth():
         :param token: The token to be validated
         :return: AuthUser
         """
-        return decode_token(token)
+        if not token.startswith("Bearer "):
+            return None
+        return decode_token(token[7:])
 
     return auth

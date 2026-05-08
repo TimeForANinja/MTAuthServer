@@ -10,8 +10,6 @@ from mtauthserver.routes.schemas.util import desc, to_field
 
 @dataclass
 class GenericOutput:
-    # TODO: check if we should move message to ErrorResponse
-    # If not double-check that we pass it to all calls
     """Every Output Schema should inherit from this class."""
     status: str = to_field(String(
         required=True,
@@ -36,3 +34,10 @@ class ErrorResponse(GenericOutput):
         self.message = error
 
 ErrorResponseSchema = class_schema(ErrorResponse)()
+
+@dataclass
+class SuccessResponse(GenericOutput):
+    def __init__(self, message: str):
+        # TODO: check if the legacy API used "valid" or "success"
+        self.status = "success"
+        self.message = message

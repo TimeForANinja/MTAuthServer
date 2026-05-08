@@ -222,7 +222,6 @@ def register_routes_v2(app: APIFlask) -> None:
             token = generate_token(user, 0)
 
             return TokenExchangeResponse(
-                status="success",
                 message="Token exchanged successfully",
                 username=user.username,
                 groups=user.groups,

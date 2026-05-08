@@ -42,15 +42,8 @@ def decode_token(token: str) -> Optional[User]:
     :return: The User object if the token is valid, None otherwise.
     """
     try:
-        # Strip Bearer prefix if present
-        if not token.startswith("Bearer "):
-            logging.warning("Attempted Login with non-bearer token.")
-            return None
-
-        token_val = token[7:]
-
         decoded_token = jwt.decode(
-            token_val,
+            token,
             current_app.config['JWT_PUBLIC_KEY'],
             algorithms=["RS256"],
         )

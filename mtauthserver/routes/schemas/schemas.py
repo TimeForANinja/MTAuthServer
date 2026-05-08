@@ -4,7 +4,7 @@ from apiflask.fields import String, List, Dict
 from apiflask.validators import Length, Regexp
 from marshmallow_dataclass import class_schema
 
-from mtauthserver.routes.schemas.common import GenericOutput
+from mtauthserver.routes.schemas.common import SuccessResponse
 from mtauthserver.routes.schemas.util import to_field, desc
 
 
@@ -17,7 +17,7 @@ class IntrospectInput:
     ))
 
 @dataclass
-class IntrospectResponse(GenericOutput):
+class IntrospectResponse(SuccessResponse):
     username: str = to_field(String(
         required=True,
         metadata=desc('Username from token')
@@ -72,7 +72,8 @@ AuthResponseSchema = class_schema(AuthResponse)()
 class JWTHeaderInput:
     jwt_token: str = to_field(String(
         required=True,
-        # TODO: should we also set data_key="jwt-token" ??
+        # overwrite the key, since flask hates "_" in headers
+        data_key="jwt-token",
         validate=[
             Length(min=5, max=10000),
             Regexp(
@@ -107,7 +108,7 @@ class AskAuthInput:
 AskAuthInputSchema = class_schema(AskAuthInput)()
 
 @dataclass
-class PublicKeyResponse(GenericOutput):
+class PublicKeyResponse(SuccessResponse):
     public_key: str = to_field(String(
         required=True,
         metadata=desc('The public key for JWT validation')
