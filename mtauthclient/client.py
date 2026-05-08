@@ -1,11 +1,13 @@
 import urllib
+import flask
 import requests
 import jwt
 import datetime
-from typing import Optional, Dict, Any, List
+from typing import Optional, Dict, Any, List, Tuple, Union, cast
 from dataclasses import dataclass
 
 from mtauthserver.auth.rsa_util import minimize_rsa_key
+from mtauthserver.auth.tokenauth import build_flask_auth
 
 
 @dataclass
@@ -18,16 +20,20 @@ class MTAuthUser:
 
 
 class MTAuthClient:
-    def __init__(self, server_url: str, client_private_key: Optional[str] = None):
+    def __init__(self, server_url: str, client_private_key: Optional[str] = None, client_public_key: Optional[str] = None):
         """
         Initialize the MTAuthClient.
+        Client-Key is only required when trying to log in users, not if you just want to verify them.
 
         :param server_url: The base URL of the MTAuthServer (e.g., https://auth.example.com)
         :param client_private_key: The client's private key for signing challenges.
+        :param client_public_key: The client's public key for verifying tokens.
         """
         self.server_url = server_url.rstrip('/')
         self.public_key = None
         self.client_private_key = client_private_key
+        self.client_public_key = client_public_key
+        self._auth = None
 
     def _fetch_public_key(self) -> str:
         """
@@ -40,6 +46,32 @@ class MTAuthClient:
             return data.get("public_key")
         raise Exception(f"Failed to fetch public key: {data.get('message')}")
 
+    def _check_initialized_for_login(self):
+        if self.client_private_key is None or self.client_public_key is None:
+            raise Exception("Client private key and public key are required for login-flows")
+
+    def handle_callback(self, request: flask.Request) -> Union[Tuple[Exception, None, None], Tuple[None, MTAuthUser, str]]:
+        """
+        Handle the callback from the auth server after a user logged in.
+        """
+        self._check_initialized_for_login()
+
+        # callback from the auth server after a user logged in
+        grant = request.args.get('grant')
+        if not grant:
+            return Exception("Missing grant"), None, None
+
+        token = self.exchange_token(grant)
+        if not token:
+            return Exception("Failed to exchange token"), None, None
+
+        user = self.verify_token(token)
+        if not user:
+            return Exception("Invalid token received"), None, None
+
+        return None, user, token
+
+
     def get_public_key(self) -> str:
         """
         Get the public key, fetching it if not already cached.
@@ -48,21 +80,23 @@ class MTAuthClient:
             self.public_key = self._fetch_public_key()
         return self.public_key
 
-    def get_authorize_url(self, redirect_uri: str, client_public_key: str, scopes: List[str] = None) -> str:
+    def get_authorize_url(self, redirect_uri: str, scopes: List[str] = None) -> str:
         """
         Generate the URL to redirect the user to for authorization.
 
         :param redirect_uri: The URI to redirect back to after login.
-        :param client_public_key: The clients public key.
         :param scopes: Optional list of scopes to request.
         :return: The authorization URL.
         """
+        self._check_initialized_for_login()
+
         query = urllib.parse.urlencode({
             "redirect_uri": redirect_uri,
-            "client_public_key": minimize_rsa_key(client_public_key),
+            "client_public_key": minimize_rsa_key(cast(str, self.client_public_key)),
         })
-        for s in scopes:
-            query += f"&scopes={urllib.parse.quote(s)}"
+        if scopes:
+            for s in scopes:
+                query += f"&scopes={urllib.parse.quote(s)}"
         url = f"{self.server_url}/api/v2/authorize?{query}"
         return url
 
@@ -73,13 +107,13 @@ class MTAuthClient:
         :param grant: The grant received from the authorize endpoint.
         :return: The new JWT token if successful, None otherwise.
         """
-        if not self.client_private_key:
-            raise Exception("Client private key is required for token exchange")
+        self._check_initialized_for_login()
 
         try:
             # Create challenge: sign the grant with client's private key
+            grant_exp = datetime.datetime.now(tz=datetime.timezone.utc) + datetime.timedelta(seconds=30)
             challenge = jwt.encode(
-                {"grant": grant, "exp": datetime.datetime.now(tz=datetime.timezone.utc) + datetime.timedelta(seconds=30)},
+                {"grant": grant, "exp": grant_exp},
                 self.client_private_key,
                 algorithm="RS256"
             )
@@ -106,6 +140,9 @@ class MTAuthClient:
         :param token: The expired JWT token.
         :return: The new JWT token if successful, None otherwise.
         """
+        self._check_initialized_for_login()
+
+        # TODO: have this run automatically in background
         try:
             # Handle both raw tokens and Bearer tokens
             if token.startswith("Bearer "):
@@ -149,3 +186,13 @@ class MTAuthClient:
             )
         except Exception:
             return None
+
+    def get_auth(self):
+        """
+        Provide a Flaks-compatible auth object.
+        This can be simpler than manually running verify_token.
+        :return:
+        """
+        if not self._auth:
+            self._auth = build_flask_auth()
+        return self._auth
