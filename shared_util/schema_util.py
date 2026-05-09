@@ -1,7 +1,5 @@
 from dataclasses import field
 from typing import Dict, Any
-
-from apiflask import Schema
 from apiflask.fields import Field as tField
 
 
@@ -10,7 +8,6 @@ def desc(description: str) -> Dict[str, Any]:
     Utility function to simplify the nesting of descriptions in metadata.
     """
     return {"description": description}
-
 
 def to_field(f: tField, **kwargs):
     """
@@ -27,16 +24,3 @@ def to_field(f: tField, **kwargs):
         },
         **kwargs,
     )
-
-def resp_wrapper(description: str, schema: Schema) -> Dict:
-    """
-    Build a response schema for the API.
-    """
-    return {
-        "description": description,
-        "content": {
-            "application/json": {
-                "schema": schema
-            }
-        }
-    }

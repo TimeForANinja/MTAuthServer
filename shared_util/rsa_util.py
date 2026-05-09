@@ -19,14 +19,14 @@ def minimize_rsa_key(pem_key: str) -> str:
 
     return minimized
 
-def restore_rsa_key(minimzed_key: str) -> str:
-    # Add padding back if neccessary
-    padding = len(minimzed_key) % 4
+def restore_rsa_key(minimized_key: str) -> str:
+    # Add padding back if necessary
+    padding = len(minimized_key) % 4
     if padding:
-        minimzed_key += "=" * (4 -padding)
+        minimized_key += "=" * (4 - padding)
 
     # Standard base64 decode from url-safe alphabet
-    raw_der = base64.urlsafe_b64decode(minimzed_key)
+    raw_der = base64.urlsafe_b64decode(minimized_key)
 
     # Re-encode to standard B64 for PEM format
     b64_str = base64.b64encode(raw_der).decode('utf-8')
@@ -39,11 +39,11 @@ def restore_rsa_key(minimzed_key: str) -> str:
 def generate_dummy_keypair() -> Tuple[str, str]:
     """
     Generate a dummy RSA keypair for testing purposes.
-    In production, you should use static keypair and import it via env.
+    In production, you should use a static keypair and import it via env.
     :return:
     """
     private_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
-    priv_pem = private_key.private_bytes(
+    private_pem = private_key.private_bytes(
         encoding=serialization.Encoding.PEM,
         format=serialization.PrivateFormat.TraditionalOpenSSL,
         encryption_algorithm=serialization.NoEncryption()
@@ -52,4 +52,18 @@ def generate_dummy_keypair() -> Tuple[str, str]:
         encoding=serialization.Encoding.PEM,
         format=serialization.PublicFormat.SubjectPublicKeyInfo
     ).decode('utf-8')
-    return priv_pem, pub_pem
+    return private_pem, pub_pem
+
+def validate_public_key(key: str) -> bool:
+    try:
+        obj = serialization.load_pem_public_key(key.encode('utf-8'))
+        return isinstance(obj, rsa.RSAPublicKey)
+    except Exception:
+        return False
+
+def validate_private_key(key: str) -> bool:
+    try:
+        obj = serialization.load_pem_private_key(key.encode('utf-8'), password=None)
+        return isinstance(obj, rsa.RSAPrivateKey)
+    except Exception:
+        return False

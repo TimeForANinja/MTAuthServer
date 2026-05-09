@@ -3,6 +3,7 @@ from typing import Set, List, Dict, Optional
 from ldap3 import Connection, SUBTREE, BASE
 from flask import current_app
 
+
 def get_user_dn(conn: Connection, username: str) -> Optional[str]:
     """
     Search for a user and return their Distinguished Name (DN).

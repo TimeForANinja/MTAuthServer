@@ -1,55 +1,57 @@
 <!DOCTYPE html>
 <html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Login - MTAuthServer</title>
-    <style>
-        body { font-family: Arial, sans-serif; display: flex; justify-content: center; align-items: center; height: 100vh; background-color: #f0f2f5; margin: 0; }
-        .login-container { background: white; padding: 2rem; border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.1); width: 100%; max-width: 400px; }
-        h2 { text-align: center; color: #1c1e21; }
-        .form-group { margin-bottom: 1rem; }
-        label { display: block; margin-bottom: 0.5rem; color: #4b4f56; }
-        input { width: 100%; padding: 0.75rem; border: 1px solid #dddfe2; border-radius: 6px; box-sizing: border-box; }
-        button { width: 100%; padding: 0.75rem; border: none; border-radius: 6px; background-color: #1877f2; color: white; font-size: 1rem; font-weight: bold; cursor: pointer; }
-        button:hover { background-color: #166fe5; }
-        .error { color: #d32f2f; background: #ffebee; padding: 0.5rem; border-radius: 4px; margin-bottom: 1rem; text-align: center; }
-    </style>
-</head>
-<body>
-    <div class="login-container">
-        <h2>MTAuth Login</h2>
-        {% if error %}
-            <div class="error">{{ error }}</div>
-        {% endif %}
-        <form method="POST">
-            <div class="form-group">
-                <label for="username">Username</label>
-                <input type="text" id="username" name="username" required autofocus>
-            </div>
-            <div class="form-group">
-                <label for="password">Password</label>
-                <input type="password" id="password" name="password" required>
-            </div>
-            {% if scopes %}
-            <div class="form-group">
-                <label>Requested Permissions:</label>
-                <ul style="text-align: left; color: #4b4f56;">
-                    {% for scope in scopes %}
-                        <li>{{ scope }}</li>
-                    {% endfor %}
-                </ul>
-            </div>
-            {% else %}
-            <div>
-                <label>Requested Permissions:</label>
-                <ul style="text-align: left; color: #4b4f56;">
-                    <li>No permissions requested.</li>
-                </ul>
-            </div>
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>Login - MTAuthServer</title>
+        <style>
+            body { font-family: Arial, sans-serif; display: flex; justify-content: center; align-items: center; height: 100vh; background-color: #f0f2f5; margin: 0; }
+            .login-container { background: white; padding: 2rem; border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.1); width: 100%; max-width: 400px; }
+            h2 { text-align: center; color: #1c1e21; }
+            .form-group { margin-bottom: 1rem; }
+            label { display: block; margin-bottom: 0.5rem; color: #4b4f56; }
+            input { width: 100%; padding: 0.75rem; border: 1px solid #dddfe2; border-radius: 6px; box-sizing: border-box; }
+            button { width: 100%; padding: 0.75rem; border: none; border-radius: 6px; background-color: #1877f2; color: white; font-size: 1rem; font-weight: bold; cursor: pointer; }
+            button:hover { background-color: #166fe5; }
+            .error { color: #d32f2f; background: #ffebee; padding: 0.5rem; border-radius: 4px; margin-bottom: 1rem; text-align: center; }
+        </style>
+    </head>
+    <body>
+        <div class="login-container">
+            <h2>MTAuth Login</h2>
+            {% if error %}
+                <div class="error">{{ error }}</div>
             {% endif %}
-            <button type="submit">Log In</button>
-        </form>
-    </div>
-</body>
+            <form method="POST">
+                <div class="form-group">
+                    <label for="username">Username</label>
+                    <input type="text" id="username" name="username" required autofocus>
+                </div>
+                <div class="form-group">
+                    <label for="password">Password</label>
+                    <input type="password" id="password" name="password" required>
+                </div>
+                <button type="submit">Log In</button>
+            </form>
+            <div>
+                {% if scopes %}
+                <div class="form-group">
+                    <label>Requested Permissions:</label>
+                    <ul style="text-align: left; color: #4b4f56;">
+                        {% for scope in scopes %}
+                            <li>{{ scope }}</li>
+                        {% endfor %}
+                    </ul>
+                </div>
+                {% else %}
+                <div>
+                    <label>Requested Permissions:</label>
+                    <ul style="text-align: left; color: #4b4f56;">
+                        <li>No permissions requested.</li>
+                    </ul>
+                </div>
+                {% endif %}
+            </div>
+        </div>
+    </body>
 </html>

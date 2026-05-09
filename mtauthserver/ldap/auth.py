@@ -2,10 +2,10 @@ from ldap3 import Connection, RESTARTABLE
 import logging
 
 from .client import get_user_dn
-from .connection import get_ldap_pool
+from .connection import get_ldap_pool, get_ldap_connection
 
 
-def check_credentials(conn: Connection, username: str, password: str) -> bool:
+def _check_credentials(conn: Connection, username: str, password: str) -> bool:
     """
     Check if the user can authenticate with the provided password.
     Creates a temporary connection for the user to avoid rebinding the main connection.
@@ -34,3 +34,7 @@ def check_credentials(conn: Connection, username: str, password: str) -> bool:
     except Exception as e:
         logging.error(f"LDAP authentication failed for DN {user_dn}: {e}")
         return False
+
+def check_credentials(username: str, password: str) -> bool:
+    conn = get_ldap_connection()
+    return _check_credentials(conn, username, password)

@@ -1,25 +1,24 @@
 from dataclasses import dataclass
 from typing import TypeVar, Tuple
-
 from apiflask.fields import String
 from apiflask.validators import OneOf
+from marshmallow.validate import Length, Regexp
 from marshmallow_dataclass import class_schema
 
-from mtauthserver.routes.schemas.util import desc, to_field
+from shared_util import to_field, desc
 
 
 @dataclass
 class GenericOutput:
     """Every Output Schema should inherit from this class."""
+    message: str = to_field(String(
+        required=True,
+        metadata=desc("Message of the response"),
+    ))
     status: str = to_field(String(
         required=True,
         validate=OneOf(["success", "failed"]),
         metadata=desc("Status of the response, e.g., 'success'"),
-    ))
-
-    message: str = to_field(String(
-        required=True,
-        metadata=desc("Message of the response"),
     ))
 
 
@@ -29,15 +28,53 @@ type OutCanError[T] = T | ErrorResponse | Tuple[ErrorResponse, int]
 
 @dataclass
 class ErrorResponse(GenericOutput):
-    def __init__(self, error: str):
+    status: str = to_field(String(
+        required=True,
+        validate=OneOf(["failed"]),
+        metadata=desc("Status of the response, e.g., 'success'"),
+    ), default="failed", kw_only=True)
+
+    def __post_init__(self):
+        # the combination of "kw_only=True", default, and "__post_init__" allows us
+        # to set the status to "failed" automatically for all dataclasses
+        # that inherit from this class
         self.status = "failed"
-        self.message = error
 
 ErrorResponseSchema = class_schema(ErrorResponse)()
 
+
 @dataclass
 class SuccessResponse(GenericOutput):
-    def __init__(self, message: str):
-        # TODO: check if the legacy API used "valid" or "success"
+    status: str = to_field(String(
+        required=True,
+        validate=OneOf(["success"]),
+        metadata=desc("Status of the response, e.g., 'success'"),
+    ), default="success", kw_only=True)
+
+    def __post_init__(self):
+        # the combination of "kw_only=True", default and "__post_init__" allows us
+        # to set the status to "success" automatically for all dataclasses
+        # that inherit from this class
         self.status = "success"
-        self.message = message
+        # TODO: check if the legacy API used "valid" or "success"
+
+SuccessResponseSchema = class_schema(SuccessResponse)()
+
+
+@dataclass
+class JWTHeaderInput:
+    jwt_token: str = to_field(String(
+        required=True,
+        # overwrite the key, since flask hates "_" in headers
+        data_key="jwt-token",
+        validate=[
+            Length(min=5, max=10000),
+            Regexp(
+                r'^Bearer [A-Za-z0-9-_]+\.[A-Za-z0-9-_]+\.[A-Za-z0-9-_]+$',
+                error='Invalid JWT format. Must be "Bearer <token>"',
+            )
+        ],
+        metadata=desc("Value of the JWT Token"),
+    ))
+
+JWTHeaderInputSchema = class_schema(JWTHeaderInput)()

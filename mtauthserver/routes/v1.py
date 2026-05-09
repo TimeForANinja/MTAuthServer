@@ -1,49 +1,46 @@
 import logging
 import re
-
+from typing import cast
 from flask import request
 from apiflask import APIBlueprint, APIFlask
 
-from mtauthserver.ldap import check_credentials, get_ldap_connection, fetch_user_data
-from mtauthserver.auth import decode_token, generate_token, User
-from mtauthserver.routes.schemas.schemas import AuthResponseSchema, IntrospectResponseSchema, IntrospectResponse, \
-    IntrospectInput, \
-    IntrospectInputSchema, AuthResponse, AuthInputSchema, AuthInput, JWTHeaderInputSchema, VerifyAppResponse, \
-    VerifyAppResponseSchema
-from mtauthserver.routes.schemas.common import ErrorResponseSchema, ErrorResponse, OutCanError
-from mtauthserver.routes.schemas.schemas import JWTHeaderInput
-from mtauthserver.routes.schemas.util import resp_wrapper
+from ..jwt_api_util import generate_api_token, decode_api_token
+from ..ldap import fetch_user, check_credentials
+from .route_util import resp_wrapper
+from .schemas.common import ErrorResponseSchema, ErrorResponse, OutCanError, JWTHeaderInputSchema, \
+    JWTHeaderInput
+from .schemas.v1 import V1AuthInputSchema, V1AuthResponseSchema, V1AuthInput, V1AuthResponse, \
+    V1IntrospectResponseSchema, V1IntrospectInput, V1IntrospectResponse, V1IntrospectInputSchema, \
+    V1VerifyAppResponseSchema, V1VerifyAppResponse
+from shared_util import V1TokenData
 
 
 def register_routes_v1(app: APIFlask) -> None:
     api = APIBlueprint('api_v1', __name__, url_prefix="/api/v1", tag="API v1")
 
     @api.post("/auth")
-    @api.input(AuthInputSchema, location="json", arg_name="auth_data")
+    @api.input(V1AuthInputSchema, location="json", arg_name="auth_data")
     @api.doc(responses={
-        200: resp_wrapper("Successfully Request", AuthResponseSchema),
+        200: resp_wrapper("Successfully Request", V1AuthResponseSchema),
         401: resp_wrapper("Invalid Authentication Provided", ErrorResponseSchema),
         500: resp_wrapper("Internal Server Error", ErrorResponseSchema),
     })
-    @api.output(AuthResponseSchema)
-    def authentication(auth_data: AuthInput) -> OutCanError[AuthResponse]:
+    @api.output(V1AuthResponseSchema)
+    def authentication(auth_data: V1AuthInput) -> OutCanError[V1AuthResponse]:
         """
         Authenticate a user against LDAP and return a JWT token.
         """
         try:
-            conn = get_ldap_connection()
-            if check_credentials(conn, auth_data.username, auth_data.password):
-                groups, attributes = fetch_user_data(auth_data.username)
-
-                user = User(username=auth_data.username, groups=groups, attributes=attributes)
-                token = generate_token(user)
+            if check_credentials(auth_data.username, auth_data.password):
+                user = fetch_user(auth_data.username)
+                token = generate_api_token(cast(V1TokenData, user).to_dict())
 
                 logging.info(f"Login attempt from: {request.remote_addr} successful.")
-                return AuthResponse(
+                return V1AuthResponse(
                     message="Authentication successful",
                     username=auth_data.username,
-                    groups=groups,
-                    attributes=attributes,
+                    groups=user.groups,
+                    attributes=user.attributes,
                     token=token,
                 )
             else:
@@ -55,38 +52,39 @@ def register_routes_v1(app: APIFlask) -> None:
 
 
     @api.post("/introspect")
-    @api.input(IntrospectInputSchema, location="json", arg_name="introspect_data")
+    @api.input(V1IntrospectInputSchema, location="json", arg_name="introspect_data")
     @api.doc(responses={
-        200: resp_wrapper("Successfully Request", IntrospectResponseSchema),
+        200: resp_wrapper("Successfully Request", V1IntrospectResponseSchema),
         401: resp_wrapper("Invalid Authentication Provided", ErrorResponseSchema),
     })
-    @api.output(IntrospectResponseSchema)
-    def introspect(introspect_data: IntrospectInput) -> OutCanError[IntrospectResponse]:
+    @api.output(V1IntrospectResponseSchema)
+    def introspect(introspect_data: V1IntrospectInput) -> OutCanError[V1IntrospectResponse]:
         """
         Introspect a JWT token and return user information.
         """
-        decoded_token = decode_token(introspect_data.token)
-
-        if not decoded_token:
-            logging.warning(f"Invalid login attempt from: {request.remote_addr}")
+        err, user = decode_api_token(introspect_data.token, V1TokenData)
+        if err:
+            logging.warning(f"Invalid token from: {request.remote_addr}: {err}")
             return ErrorResponse("Invalid token"), 401
+        user = cast(V1TokenData, user)
 
-        logging.info(f"Successfully Introspect from: {request.remote_addr} for user: {decoded_token.username}")
-        return IntrospectResponse(
+        logging.info(f"Successfully Introspect from: {request.remote_addr} for user: {user.username}")
+        return V1IntrospectResponse(
             message="Authentication successful",
-            username=decoded_token.username,
-            groups=decoded_token.groups,
-            attributes=decoded_token.attributes
+            username=user.username,
+            groups=user.groups,
+            attributes=user.attributes
         )
 
     @api.get("/verify/<string:app_name>")
     @api.input(JWTHeaderInputSchema, location="headers", arg_name="token")
     @api.doc(responses={
-        200: resp_wrapper("Successfully Request", VerifyAppResponseSchema),
+        200: resp_wrapper("Successfully Request", V1VerifyAppResponseSchema),
+        400: resp_wrapper("Invalid App Provided", ErrorResponseSchema),
         401: resp_wrapper("Invalid Authentication Provided", ErrorResponseSchema),
     })
-    @api.output(VerifyAppResponseSchema)
-    def verify_app(app_name: str, token: JWTHeaderInput) -> OutCanError[VerifyAppResponse]:
+    @api.output(V1VerifyAppResponseSchema)
+    def verify_app(app_name: str, token: JWTHeaderInput) -> OutCanError[V1VerifyAppResponse]:
         """
         Verify JWT token manually
         """
@@ -94,24 +92,24 @@ def register_routes_v1(app: APIFlask) -> None:
             logging.warning("Attempted Login with non-bearer token.")
             return ErrorResponse("Only Bearer-Tokens supported"), 401
 
-        # remove the bearer prefix
+        # remove the bearer prefix and decode the token
         raw_token = token.jwt_token.replace("Bearer ", "")
-        decoded_token = decode_token(raw_token)
-
-        if not decoded_token:
-            logging.warning(f"Invalid token attempt from: {request.remote_addr}")
+        err, user = decode_api_token(raw_token, V1TokenData)
+        if err:
+            logging.warning(f"Invalid token from: {request.remote_addr}: {err}")
             return ErrorResponse("Invalid token"), 401
+        user = cast(V1TokenData, user)
 
-        if not re.match(r'^[A-Za-z_-]+', app_name):
-            logging.warning(f"Invalid app name from: {request.remote_addr} (\"{app_name}\")")
-            return ErrorResponse("Invalid app name"), 401
+        if not re.match(r'^[A-Za-z_-]+$', app_name):
+            logging.warning(f"Invalid app name from: {request.remote_addr}: \"{app_name}\"")
+            return ErrorResponse("Invalid app name"), 400
 
-        logging.info(f"Successfully Verify from: {request.remote_addr} for user: {decoded_token.username}")
-        return VerifyAppResponse(
+        logging.info(f"Successfully Verify from: {request.remote_addr} for user: {user.username}")
+        return V1VerifyAppResponse(
             message="Authentication successful",
-            username=decoded_token.username,
-            groups=decoded_token.groups,
-            attributes=decoded_token.attributes,
+            username=user.username,
+            groups=user.groups,
+            attributes=user.attributes,
             app=app_name,
         )
 

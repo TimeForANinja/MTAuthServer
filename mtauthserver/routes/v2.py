@@ -1,25 +1,25 @@
 import logging
-import jwt
-import datetime
-from typing import Union, List, Optional
+from typing import Union, List, Optional, cast, Mapping, Any, Tuple
 from flask import render_template, request, redirect, current_app, Response
 from apiflask import APIBlueprint, APIFlask
 from marshmallow import ValidationError
 
-from mtauthserver.auth import generate_token, User
-from mtauthserver.auth.rsa_util import restore_rsa_key
-from mtauthserver.ldap import get_ldap_connection, check_credentials, fetch_user_data
-from mtauthserver.routes.schemas.common import OutCanError, ErrorResponse, ErrorResponseSchema
-from mtauthserver.routes.schemas.schemas import AskAuthInputSchema, AskAuthInput, AuthDoneInputSchema, AuthDoneInput, \
-    PublicKeyResponseSchema, RekeyResponseSchema, RekeyInputSchema, RekeyInput, PublicKeyResponse, RekeyResponse, \
-    TokenExchangeInputSchema, TokenExchangeResponseSchema, TokenExchangeInput, TokenExchangeResponse
-from mtauthserver.routes.schemas.util import resp_wrapper
+from ..jwt_api_util import generate_api_token, decode_api_token, expire_in_api_token
+from ..ldap import fetch_user, check_credentials
+from .route_util import resp_wrapper
+from .schemas.common import OutCanError, ErrorResponse, ErrorResponseSchema
+from .schemas.v2 import V2AskAuthInputSchema, V2AskAuthInput, V2AuthDoneInputSchema, V2AuthDoneInput, \
+    V2RekeyInputSchema, V2RekeyInput, V2TokenExchangeInputSchema, V2TokenExchangeInput, V2GrantPayload, \
+    V2GrantChallenge, V2AuthResponseSchema, V2AuthResponse
+from shared_util import generate_token, decode_and_cast, restore_rsa_key, V2TokenData
 
 
+# Time (in seconds) after which the grant expires
 GRANT_MAX_AGE = 10
 
 
 def _render_login(scopes: List[str], error: Optional[str] = None) -> str:
+    """Render the login page with an optional error message and scopes."""
     return render_template(
         'login.html',
         scopes=scopes,
@@ -30,54 +30,55 @@ def _render_login(scopes: List[str], error: Optional[str] = None) -> str:
 def register_routes_v2(app: APIFlask) -> None:
     api = APIBlueprint('api_v2', __name__, url_prefix='/api/v2', tag="API v2")
 
+
+    @api.get('/public-key')
+    @api.doc(responses={
+        200: {'description': 'Token in PEM Format', 'content': {'text/plain': {}}},
+    })
+    def get_public_key() -> str:
+        """Fetch the public key for JWT validation."""
+        return current_app.config['JWT_PUBLIC_KEY']
+
+
     @api.get('/authorize')
-    @api.input(AskAuthInputSchema, location="query", arg_name="auth_query")
-    def authorize(auth_query: AskAuthInput) -> str:
-        """
-        The authorization endpoint where the user is redirected to.
-        """
+    @api.input(V2AskAuthInputSchema, location="query", arg_name="auth_query")
+    @api.doc(responses={
+        200: {'description': 'Login Webpage', 'content': {'text/html': {}}},
+    })
+    def authorize(auth_query: V2AskAuthInput) -> str:
+        """The authorization endpoint where the user is redirected to."""
         return _render_login(auth_query.scopes)
 
     @api.post('/authorize')
-    @api.input(AskAuthInputSchema, location="query", arg_name="auth_query")
-    @api.input(AuthDoneInputSchema, location="form", arg_name="raw_auth_data", validation=False)
-    def login(auth_query: AskAuthInput, raw_auth_data: AuthDoneInput) -> Union[str, Response]:
-        """
-        Handle the login form submission.
-        """
+    @api.input(V2AskAuthInputSchema, location="query", arg_name="auth_query")
+    @api.input(V2AuthDoneInputSchema, location="form", arg_name="raw_auth_data", validation=False)
+    @api.doc(responses={
+        200: {'title': 'asdf', 'description': 'Failed, back to Login Page', 'content': {'text/html': {}}},
+        302: {'description': 'Successfully logged in, forwarding to App with Grant in Query.'},
+    })
+    def login(auth_query: V2AskAuthInput, raw_auth_data: Mapping[str, Any]) -> Union[str, Response]:
+        """Handle the login form submission."""
         try:
-            # we disable validation at the top, and manually parse and validate here
-            # this allows us to catch the ValidationError and return a HTTP Page with error message
-            auth_data = AuthDoneInputSchema.load(raw_auth_data)
+            # we disable validation for the input so we can manually parse and validate it here
+            # this allows us to catch the ValidationError and return a proper (html) error message
+            auth_data: V2AuthDoneInput = V2AuthDoneInputSchema.load(raw_auth_data)
 
-            conn = get_ldap_connection()
-            if check_credentials(conn, auth_data.username, auth_data.password):
-                groups, attributes = fetch_user_data(auth_data.username)
-
-                # filter scopes: user can only have a permission that is identical to a group he is in
-                user_scopes = [s for s in auth_data.scopes if s in groups]
-
-                # Instead of a full token, we generate a short-lived grant
-                grant_payload = {
-                    "username": auth_data.username,
-                    "groups": groups,
-                    "attributes": attributes,
-                    "scopes": user_scopes,
-                    "client_public_key": restore_rsa_key(auth_query.cpk),
-                    "exp": datetime.datetime.now(tz=datetime.timezone.utc) + datetime.timedelta(seconds=GRANT_MAX_AGE)
-                }
-                grant = jwt.encode(
-                    grant_payload,
-                    current_app.config['JWT_PRIVATE_KEY'],
-                    algorithm="RS256"
-                )
-
-                logging.info(f"V2 Login successful for user: {auth_data.username} from {request.remote_addr}")
-
-                return redirect(f"{auth_query.redirect_uri}?grant={grant}")
-            else:
+            if not check_credentials(auth_data.username, auth_data.password):
                 logging.warning(f"V2 Login failed for user: {auth_data.username} from {request.remote_addr}")
                 return _render_login(auth_query.scopes, error="Invalid credentials")
+
+            user = fetch_user(auth_data.username)
+
+            # filter scopes: user can only have a permission that is identical to a group he is in
+            user_scopes = [s for s in auth_query.scopes if s in user.groups]
+
+            # Instead of a full token, we generate a short-lived grant
+            # The other side can then use a back-channel to exchange the grant for an access token
+            pl = V2GrantPayload(user=user, scopes=user_scopes, client_public_key=restore_rsa_key(auth_query.cpk))
+            grant = generate_token(pl.to_dict(), current_app.config['JWT_PRIVATE_KEY'], GRANT_MAX_AGE)
+
+            logging.info(f"V2 Login successful for user: {auth_data.username} from {request.remote_addr}")
+            return redirect(f"{auth_query.redirect_uri}?grant={grant}")
         except ValidationError as e:
             logging.error(f"Validation error during V2 authentication: {e}")
             return _render_login(auth_query.scopes, error="Invalid login data")
@@ -85,165 +86,96 @@ def register_routes_v2(app: APIFlask) -> None:
             logging.error(f"Error during V2 authentication: {e}")
             return _render_login(auth_query.scopes, error="Internal server error")
 
-    @api.get('/public-key')
-    @api.output(PublicKeyResponseSchema)
-    def get_public_key() -> PublicKeyResponse:
-        """
-        Fetch the public key for JWT validation.
-        """
-        return PublicKeyResponse(
-            status="success",
-            message="Public key fetched successfully",
-            public_key=current_app.config['JWT_PUBLIC_KEY'],
-        )
-
-    @api.post('/rekey')
-    @api.input(RekeyInputSchema, arg_name="data")
-    @api.output(RekeyResponseSchema)
-    @api.doc(responses={
-        200: resp_wrapper("Successfully Request", RekeyResponseSchema),
-        400: resp_wrapper("Invalid Token", ErrorResponseSchema),
-        500: resp_wrapper("Internal Server Error", ErrorResponseSchema),
-    })
-    def rekey(data: RekeyInput) -> OutCanError[RekeyResponse]:
-        """
-        Renew an expired token.
-        """
-        try:
-            # Decode token without verification to get data and exp
-            # We want to check if it's expired and how long ago
-            payload = jwt.decode(
-                data.token,
-                options={"verify_signature": False, "verify_exp": False}
-            )
-
-            exp = payload.get("exp")
-            if not exp:
-                logging.warning(f"Rekey failed: token missing exp. IP: {request.remote_addr}")
-                return ErrorResponse("Invalid token: missing exp"), 400
-
-            exp_dt = datetime.datetime.fromtimestamp(exp, tz=datetime.timezone.utc)
-            now_dt = datetime.datetime.now(tz=datetime.timezone.utc)
-
-            if now_dt < exp_dt:
-                logging.warning(f"Rekey failed: token not yet expired. IP: {request.remote_addr}")
-                return ErrorResponse("Token not yet expired"), 400
-
-            diff = (now_dt - exp_dt).total_seconds()
-            if diff > current_app.config['REKEY_MAX_TIME_DIFF']:
-                logging.warning(f"Rekey failed: token expired too long ago ({diff}s). IP: {request.remote_addr}")
-                return ErrorResponse("Token expired too long ago"), 400
-
-            rekey_count = payload.get("rekey_count", 0)
-            if rekey_count >= current_app.config['REKEY_MAX_COUNT']:
-                logging.warning(f"Rekey failed: max rekey count reached ({rekey_count}). User: {payload.get('username')}, IP: {request.remote_addr}")
-                return ErrorResponse("Max rekey count reached"), 400
-
-            # Verify signature now
-            try:
-                jwt.decode(
-                    data.token,
-                    current_app.config['JWT_PUBLIC_KEY'],
-                    algorithms=["RS256"],
-                    options={"verify_exp": False} # we already checked exp manually
-                )
-            except jwt.InvalidTokenError as e:
-                logging.warning(f"Rekey failed: invalid token signature ({e}). IP: {request.remote_addr}")
-                return ErrorResponse(f"Invalid token signature: {e}"), 400
-
-            # Generate new token, with updated groups, attributes and scopes
-            groups, attributes = fetch_user_data(payload.get("username"))
-            # user must still be a member of the group
-            user_scopes = [s for s in payload.get("scopes") if s in groups]
-
-            user = User(
-                username=payload.get("username"),
-                groups=groups,
-                attributes=attributes,
-                scopes=user_scopes
-            )
-
-            # We need to pass rekey_count + 1 to generate_token
-            new_token = generate_token(user, rekey_count + 1)
-
-            return RekeyResponse(
-                message="Token renewed successfully",
-                username=user.username,
-                groups=user.groups,
-                attributes=user.attributes,
-                token=new_token,
-            )
-
-        except Exception as e:
-            logging.error(f"Error during rekey: {e}")
-            return ErrorResponse("Internal server error"), 500
-
     @api.post('/token')
-    @api.input(TokenExchangeInputSchema, arg_name="data")
-    @api.output(TokenExchangeResponseSchema)
+    @api.input(V2TokenExchangeInputSchema, arg_name="data")
+    @api.output(V2AuthResponseSchema)
     @api.doc(responses={
-        200: resp_wrapper("Token exchanged successfully", TokenExchangeResponseSchema),
+        200: resp_wrapper("Token exchanged successfully", V2AuthResponseSchema),
         400: resp_wrapper("Invalid Grant", ErrorResponseSchema),
         500: resp_wrapper("Internal Server Error", ErrorResponseSchema),
     })
-    def exchange_token(data: TokenExchangeInput) -> OutCanError[TokenExchangeResponse]:
-        """
-        Exchange a grant for an access token.
-        """
-        try:
-            # decrypt the grant with our key
-            payload = jwt.decode(
-                data.grant,
-                current_app.config['JWT_PUBLIC_KEY'],
-                algorithms=["RS256"]
-            )
-            # extract the public key that was granted
-            client_public_key = payload.get("client_public_key")
-            if not client_public_key:
-                logging.warning(f"Token exchange failed: grant missing client public key. IP: {request.remote_addr}")
-                return ErrorResponse("Grant missing client public key"), 400
+    def exchange_token(data: V2TokenExchangeInput) -> OutCanError[V2AuthResponse]:
+        """Exchange a grant for an access token."""
+        # decrypt the grant with our key
+        err, grant = decode_api_token(data.grant, V2GrantPayload)
+        if err:
+            logging.warning(f"Token exchange failed: invalid grant. IP: {request.remote_addr}. Error: {err}.")
+            return ErrorResponse("Invalid Grant"), 400
+        grant = cast(V2GrantPayload, grant)
 
-            # Verify challenge: client signs the grant with their private key
-            try:
-                # We expect the challenge to be a JWT signed by the client's private key,
-                # where the payload matches the grant.
-                challenge_payload = jwt.decode(
-                    data.challenge,
-                    client_public_key,
-                    algorithms=["RS256"]
-                )
+        # Verify client challenge
+        # The client signs the grant with their private key and includes it in the request
+        err, challenge = decode_and_cast(data.challenge, grant.client_public_key, V2GrantChallenge)
+        if err:
+            logging.warning(f"Token exchange failed: invalid challenge. IP: {request.remote_addr}. Error: {err}.")
+            return ErrorResponse("Invalid Challenge"), 400
+        challenge = cast(V2GrantChallenge, challenge)
+        if challenge.grant != data.grant:
+            logging.warning(f"Token exchange failed: challenge grant mismatch. IP: {request.remote_addr}")
+            return ErrorResponse("Challenge grant mismatch"), 400
 
-                if challenge_payload.get("grant") != data.grant:
-                    logging.warning(f"Token exchange failed: challenge grant mismatch. IP: {request.remote_addr}")
-                    return ErrorResponse("Challenge grant mismatch"), 400
+        token = generate_api_token(V2TokenData(
+            user=grant.user,
+            scopes=grant.scopes,
+            rekey_count=0,
+        ).to_dict())
 
-            except jwt.InvalidTokenError as e:
-                logging.warning(f"Token exchange failed: challenge verification failed ({e}). IP: {request.remote_addr}")
-                return ErrorResponse(f"Challenge verification failed: {e}"), 400
+        return V2AuthResponse(
+            message="Token exchanged successfully",
+            user=grant.user,
+            scopes=grant.scopes,
+            token=token,
+        )
 
-            user = User(
-                username=payload.get("username"),
-                groups=payload.get("groups", []),
-                attributes=payload.get("attributes", {}),
-                scopes=payload.get("scopes")
-            )
+    @api.post('/rekey')
+    @api.input(V2RekeyInputSchema, arg_name="data")
+    @api.output(V2AuthResponseSchema)
+    @api.doc(responses={
+        200: resp_wrapper("Successfully Request", V2AuthResponseSchema),
+        400: resp_wrapper("Invalid Token", ErrorResponseSchema),
+        500: resp_wrapper("Internal Server Error", ErrorResponseSchema),
+    })
+    def rekey(data: V2RekeyInput) -> OutCanError[V2AuthResponse]:
+        """(Try to) renew an expired token."""
+        # try to decode the token
+        # ignore expiration since we have different constraints
+        err, token = decode_api_token(data.token, V2TokenData, verify_exp=False)
+        if err:
+            logging.warning(f"Rekey failed: invalid token. IP: {request.remote_addr}. Error: {err}.")
+            return ErrorResponse("Invalid Token"), 400
+        token = cast(V2TokenData, token)
 
-            token = generate_token(user, 0)
+        # check token expiry
+        err, exp = expire_in_api_token(data.token)
+        if err:
+            logging.warning(f"Rekey failed: invalid token. IP: {request.remote_addr}. Error: {err}.")
+            return ErrorResponse("Invalid Token"), 400
+        exp = cast(float, exp)
+        if exp >= current_app.config['REKEY_MAX_TIME_DIFF']:
+            logging.warning(f"Rekey failed: token expired too long ago ({exp:.2f}s). IP: {request.remote_addr}")
+            return ErrorResponse("Invalid Token"), 400
 
-            return TokenExchangeResponse(
-                status="success",
-                message="Token exchanged successfully",
-                username=user.username,
-                groups=user.groups,
-                attributes=user.attributes,
-                token=token,
-            )
-        except jwt.ExpiredSignatureError:
-            return ErrorResponse("Grant expired"), 400
-        except jwt.InvalidTokenError as e:
-            return ErrorResponse(f"Invalid grant: {e}"), 400
-        except Exception as e:
-            logging.error(f"Error during token exchange: {e}")
-            return ErrorResponse("Internal server error"), 500
+        # check rekey count
+        if token.rekey_count >= current_app.config['REKEY_MAX_COUNT']:
+            logging.warning(f"Rekey failed: max rekey count reached ({token.rekey_count}). User: {token.user.username}, IP: {request.remote_addr}")
+            return ErrorResponse("Invalid Token"), 400
+
+
+        # Generate new token but force update the user data
+        new_user = fetch_user(token.user.username)
+        # user must still be a member of the scope groups
+        new_scopes = [scope for scope in token.scopes if scope in new_user.groups]
+        new_token = generate_api_token(V2TokenData(
+            user=new_user,
+            scopes=new_scopes,
+            rekey_count=token.rekey_count + 1,
+        ).to_dict())
+
+        return V2AuthResponse(
+            message="Token renewed successfully",
+            user=new_user,
+            token=new_token,
+            scopes=new_scopes,
+        )
 
     app.register_blueprint(api)

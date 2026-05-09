@@ -1,5 +1,7 @@
 from apiflask import APIFlask
 
+from shared_util import validate_public_key, validate_private_key
+
 
 # type-checks and conversions
 def validate_and_convert(app: APIFlask):
@@ -18,6 +20,7 @@ def validate_and_convert(app: APIFlask):
     for key in bool_keys:
         val = app.config.get(key)
         if isinstance(val, str):
+            # default to False if not specified
             app.config[key] = val.lower() in ('true', '1', 't', 'y', 'yes')
 
     for key in int_keys:
@@ -39,6 +42,11 @@ def validate_and_convert(app: APIFlask):
             app.config[key] = val.split(',')
             if len(app.config[key]) == 0:
                 raise Exception(f"Invalid value for {key}. Must be a comma-separated list with at least one element.")
+
+    if not validate_public_key(app.config.get('JWT_PUBLIC_KEY')):
+        raise Exception("Invalid public key. Must be a valid RSA public key.")
+    if not validate_private_key(app.config.get('JWT_PRIVATE_KEY')):
+        raise Exception("Invalid private key. Must be a valid RSA private key.")
 
 
 def load_config(app: APIFlask):

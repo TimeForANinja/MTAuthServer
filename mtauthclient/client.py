@@ -1,23 +1,11 @@
 import logging
-import urllib
+import urllib.parse
 import flask
 import requests
-import jwt
-import datetime
-from typing import Optional, Dict, Any, List, Tuple, Union, cast
-from dataclasses import dataclass
+from typing import Optional, List, Tuple, Union, cast
 
-from mtauthserver.auth.rsa_util import minimize_rsa_key
-from mtauthserver.auth.tokenauth import build_flask_auth
-
-
-@dataclass
-class MTAuthUser:
-    # identical to User from mtauthserver.auth.user
-    username: str
-    groups: List[str]
-    attributes: Dict[str, Any]
-    scopes: Optional[List[str]] = None
+from .flask_auth import build_flask_auth
+from shared_util import minimize_rsa_key, decode_and_cast, V2TokenData, get_expiring_in, generate_token
 
 
 class MTAuthClient:
@@ -42,58 +30,28 @@ class MTAuthClient:
         """
         response = requests.get(f"{self.server_url}/api/v2/public-key")
         response.raise_for_status()
-        data = response.json()
-        if data.get("status") == "success":
-            return data.get("public_key")
-        logging.error(f"Failed to fetch public key: {data.get('message')}")
-        raise Exception(f"Failed to fetch public key: {data.get('message')}")
+        return response.text
 
     def _check_initialized_for_login(self):
         if self.client_private_key is None or self.client_public_key is None:
             raise Exception("Client private key and public key are required for login-flows")
 
-    def handle_callback(self, request: flask.Request) -> Union[Tuple[Exception, None, None], Tuple[None, MTAuthUser, str]]:
-        """
-        Handle the callback from the auth server after a user logged in.
-        """
-        self._check_initialized_for_login()
-
-        # callback from the auth server after a user logged in
-        grant = request.args.get('grant')
-        if not grant:
-            logging.error("handle_callback failed: missing grant")
-            return Exception("Missing grant"), None, None
-
-        # check if the grant is expired
-        try:
-            jwt.decode(grant, self.get_public_key(), algorithms=["RS256"])
-        except jwt.ExpiredSignatureError:
-            logging.error("handle_callback failed: grant expired")
-            return Exception("Grant Expired"), None, None
-        except Exception as e:
-            logging.error(f"handle_callback failed: grant validation error: {e}")
-            return e, None, None
-
-        token = self.exchange_token(grant)
-        if not token:
-            logging.error("handle_callback failed: token exchange failed")
-            return Exception("Failed to exchange token"), None, None
-
-        user = self.verify_token(token)
-        if not user:
-            logging.error("handle_callback failed: invalid token received")
-            return Exception("Invalid token received"), None, None
-
-        return None, user, token
-
 
     def get_public_key(self) -> str:
-        """
-        Get the public key, fetching it if not already cached.
-        """
+        """Get the public key, fetching it if not already cached."""
         if self.public_key is None:
             self.public_key = self._fetch_public_key()
         return self.public_key
+
+    def get_auth(self):
+        """
+        Provide a Flaks-compatible auth object.
+        This allows for easier use than manually running verify_token.
+        """
+        if not self._auth:
+            self._auth = build_flask_auth(self.verify_token)
+        return self._auth
+
 
     def get_authorize_url(self, redirect_uri: str, scopes: List[str] = None) -> str:
         """
@@ -110,12 +68,42 @@ class MTAuthClient:
             "cpk": minimize_rsa_key(cast(str, self.client_public_key)),
         })
         if scopes:
+            # we manually add the scopes, since the urlencode function does not properly support lists
             for s in scopes:
                 query += f"&scopes={urllib.parse.quote(s)}"
         url = f"{self.server_url}/api/v2/authorize?{query}"
         return url
 
-    def exchange_token(self, grant: str) -> Optional[str]:
+    def handle_callback(self, request: flask.Request) -> Union[Tuple[Exception, None, None], Tuple[None, V2TokenData, str]]:
+        """Handle the callback from the auth server after a user logged in."""
+        self._check_initialized_for_login()
+
+        # callback from the auth server after a user logged in
+        grant = request.args.get('grant')
+        if not grant:
+            logging.error("handle_callback failed: missing grant")
+            return Exception("Missing grant"), None, None
+
+        # check if the grant is valid
+        if self.is_expired(grant):
+            logging.error("handle_callback failed: grant invalid or expired")
+            return Exception("Grant Expired"), None, None
+
+        # (try to) exchange the grant for a token
+        token = self._exchange_token(grant)
+        if not token:
+            logging.error("handle_callback failed: token exchange failed")
+            return Exception("Failed to exchange token"), None, None
+
+        # try to parse the token
+        token_data = self.verify_token("Bearer " + token)
+        if not token_data:
+            logging.error("handle_callback failed: invalid token received")
+            return Exception("Invalid token received"), None, None
+
+        return None, token_data, token
+
+    def _exchange_token(self, grant: str) -> Optional[str]:
         """
         Exchange a grant for an access token.
 
@@ -124,15 +112,10 @@ class MTAuthClient:
         """
         self._check_initialized_for_login()
 
-        try:
-            # Create challenge: sign the grant with client's private key
-            grant_exp = datetime.datetime.now(tz=datetime.timezone.utc) + datetime.timedelta(seconds=30)
-            challenge = jwt.encode(
-                {"grant": grant, "exp": grant_exp},
-                self.client_private_key,
-                algorithm="RS256"
-            )
+        # create challenge: sign the grant with client's private key
+        challenge = generate_token({"grant": grant}, cast(str, self.client_private_key), 30)
 
+        try:
             response = requests.post(
                 f"{self.server_url}/api/v2/token",
                 json={
@@ -179,46 +162,25 @@ class MTAuthClient:
             logging.error(f"Error during rekey: {e}")
             return None
 
-    def verify_token(self, token: str) -> Optional[MTAuthUser]:
+
+    def is_expired(self, token: str) -> bool:
+        err, exp = get_expiring_in(token, self.get_public_key())
+        return err or exp >= 0
+
+    def verify_token(self, token: str) -> Optional[V2TokenData]:
         """
         Verify and decode a JWT token.
 
-        :param token: The JWT token received from MTAuthServer.
-        :return: An MTAuthUser object if valid, None otherwise.
+        :param token: The JWT token received from MTAuthServer (including Bearer prefix).
+        :return: The Token Data if valid (including the User), None otherwise.
         """
-        try:
-            # Handle both raw tokens and Bearer tokens
-            if token.startswith("Bearer "):
-                token = token[7:]
-
-            decoded = jwt.decode(
-                token,
-                self.get_public_key(),
-                algorithms=["RS256"]
-            )
-
-            return MTAuthUser(
-                username=decoded.get("username"),
-                groups=decoded.get("groups", []),
-                attributes=decoded.get("attributes", {}),
-                scopes=decoded.get("scopes")
-            )
-        except jwt.ExpiredSignatureError:
-            logging.error("Token verification failed: Token expired")
+        # Check for Bearer prefix
+        if not token.startswith("Bearer "):
             return None
-        except jwt.InvalidTokenError as e:
-            logging.error(f"Token verification failed: Invalid token ({e})")
-            return None
-        except Exception as e:
-            logging.error(f"Token verification failed: {e}")
-            return None
+        token = token[7:]
 
-    def get_auth(self):
-        """
-        Provide a Flaks-compatible auth object.
-        This can be simpler than manually running verify_token.
-        :return:
-        """
-        if not self._auth:
-            self._auth = build_flask_auth()
-        return self._auth
+        err, td = decode_and_cast(token, self.get_public_key(), V2TokenData)
+        if err:
+            logging.error(f"Token verification failed: {err}")
+            return None
+        return td
