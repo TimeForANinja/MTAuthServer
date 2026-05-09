@@ -1,3 +1,4 @@
+import logging
 from typing import Set, List, Dict, Optional
 from ldap3 import Connection, SUBTREE, BASE
 from flask import current_app
@@ -15,6 +16,7 @@ def get_user_dn(conn: Connection, username: str) -> Optional[str]:
     )
     if len(conn.entries) == 1:
         return conn.entries[0].entry_dn
+    logging.warning(f"User DN search for '{username}' returned {len(conn.entries)} entries.")
     return None
 
 def find_inherited_groups(conn: Connection, entry_dn: str, all_groups: Set[str]) -> None:
@@ -64,6 +66,7 @@ def get_user_attributes(conn: Connection, username: str) -> Dict[str, str]:
     )
 
     if len(conn.entries) != 1:
+        logging.warning(f"User attributes search for '{username}' returned {len(conn.entries)} entries.")
         return {}
 
     entry = conn.entries[0]

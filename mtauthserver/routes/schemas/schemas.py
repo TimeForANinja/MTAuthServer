@@ -94,7 +94,7 @@ class AskAuthInput:
         validate=Regexp(r'^https?://', error='redirect_uri must start with http:// or https://'),
         metadata=desc('URL to redirect to after authentication.'),
     ))
-    client_public_key: str = to_field(String(
+    cpk: str = to_field(String(
         required=True,
         validate=Length(min=32),
         metadata=desc('The clients public key for the backchannel grant.')

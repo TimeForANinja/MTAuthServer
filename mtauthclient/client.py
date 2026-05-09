@@ -1,3 +1,4 @@
+import logging
 import urllib
 import flask
 import requests
@@ -44,6 +45,7 @@ class MTAuthClient:
         data = response.json()
         if data.get("status") == "success":
             return data.get("public_key")
+        logging.error(f"Failed to fetch public key: {data.get('message')}")
         raise Exception(f"Failed to fetch public key: {data.get('message')}")
 
     def _check_initialized_for_login(self):
@@ -59,14 +61,27 @@ class MTAuthClient:
         # callback from the auth server after a user logged in
         grant = request.args.get('grant')
         if not grant:
+            logging.error("handle_callback failed: missing grant")
             return Exception("Missing grant"), None, None
+
+        # check if the grant is expired
+        try:
+            jwt.decode(grant, self.get_public_key(), algorithms=["RS256"])
+        except jwt.ExpiredSignatureError:
+            logging.error("handle_callback failed: grant expired")
+            return Exception("Grant Expired"), None, None
+        except Exception as e:
+            logging.error(f"handle_callback failed: grant validation error: {e}")
+            return e, None, None
 
         token = self.exchange_token(grant)
         if not token:
+            logging.error("handle_callback failed: token exchange failed")
             return Exception("Failed to exchange token"), None, None
 
         user = self.verify_token(token)
         if not user:
+            logging.error("handle_callback failed: invalid token received")
             return Exception("Invalid token received"), None, None
 
         return None, user, token
@@ -92,7 +107,7 @@ class MTAuthClient:
 
         query = urllib.parse.urlencode({
             "redirect_uri": redirect_uri,
-            "client_public_key": minimize_rsa_key(cast(str, self.client_public_key)),
+            "cpk": minimize_rsa_key(cast(str, self.client_public_key)),
         })
         if scopes:
             for s in scopes:
@@ -129,8 +144,10 @@ class MTAuthClient:
             data = response.json()
             if data.get("status") == "success":
                 return data.get("token")
+            logging.error(f"Token exchange failed: {data.get('message')}")
             return None
-        except Exception:
+        except Exception as e:
+            logging.error(f"Error during token exchange: {e}")
             return None
 
     def rekey(self, token: str) -> Optional[str]:
@@ -156,8 +173,10 @@ class MTAuthClient:
             data = response.json()
             if data.get("status") == "success":
                 return data.get("token")
+            logging.error(f"Rekey failed: {data.get('message')}")
             return None
-        except Exception:
+        except Exception as e:
+            logging.error(f"Error during rekey: {e}")
             return None
 
     def verify_token(self, token: str) -> Optional[MTAuthUser]:
@@ -184,7 +203,14 @@ class MTAuthClient:
                 attributes=decoded.get("attributes", {}),
                 scopes=decoded.get("scopes")
             )
-        except Exception:
+        except jwt.ExpiredSignatureError:
+            logging.error("Token verification failed: Token expired")
+            return None
+        except jwt.InvalidTokenError as e:
+            logging.error(f"Token verification failed: Invalid token ({e})")
+            return None
+        except Exception as e:
+            logging.error(f"Token verification failed: {e}")
             return None
 
     def get_auth(self):

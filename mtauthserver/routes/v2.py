@@ -63,7 +63,7 @@ def register_routes_v2(app: APIFlask) -> None:
                     "groups": groups,
                     "attributes": attributes,
                     "scopes": user_scopes,
-                    "client_public_key": auth_query.client_public_key,
+                    "client_public_key": restore_rsa_key(auth_query.cpk),
                     "exp": datetime.datetime.now(tz=datetime.timezone.utc) + datetime.timedelta(seconds=GRANT_MAX_AGE)
                 }
                 grant = jwt.encode(
@@ -92,6 +92,7 @@ def register_routes_v2(app: APIFlask) -> None:
         Fetch the public key for JWT validation.
         """
         return PublicKeyResponse(
+            status="success",
             message="Public key fetched successfully",
             public_key=current_app.config['JWT_PUBLIC_KEY'],
         )
@@ -118,20 +119,24 @@ def register_routes_v2(app: APIFlask) -> None:
 
             exp = payload.get("exp")
             if not exp:
+                logging.warning(f"Rekey failed: token missing exp. IP: {request.remote_addr}")
                 return ErrorResponse("Invalid token: missing exp"), 400
 
             exp_dt = datetime.datetime.fromtimestamp(exp, tz=datetime.timezone.utc)
             now_dt = datetime.datetime.now(tz=datetime.timezone.utc)
 
             if now_dt < exp_dt:
+                logging.warning(f"Rekey failed: token not yet expired. IP: {request.remote_addr}")
                 return ErrorResponse("Token not yet expired"), 400
 
             diff = (now_dt - exp_dt).total_seconds()
             if diff > current_app.config['REKEY_MAX_TIME_DIFF']:
+                logging.warning(f"Rekey failed: token expired too long ago ({diff}s). IP: {request.remote_addr}")
                 return ErrorResponse("Token expired too long ago"), 400
 
             rekey_count = payload.get("rekey_count", 0)
             if rekey_count >= current_app.config['REKEY_MAX_COUNT']:
+                logging.warning(f"Rekey failed: max rekey count reached ({rekey_count}). User: {payload.get('username')}, IP: {request.remote_addr}")
                 return ErrorResponse("Max rekey count reached"), 400
 
             # Verify signature now
@@ -143,6 +148,7 @@ def register_routes_v2(app: APIFlask) -> None:
                     options={"verify_exp": False} # we already checked exp manually
                 )
             except jwt.InvalidTokenError as e:
+                logging.warning(f"Rekey failed: invalid token signature ({e}). IP: {request.remote_addr}")
                 return ErrorResponse(f"Invalid token signature: {e}"), 400
 
             # Generate new token, with updated groups, attributes and scopes
@@ -194,6 +200,7 @@ def register_routes_v2(app: APIFlask) -> None:
             # extract the public key that was granted
             client_public_key = payload.get("client_public_key")
             if not client_public_key:
+                logging.warning(f"Token exchange failed: grant missing client public key. IP: {request.remote_addr}")
                 return ErrorResponse("Grant missing client public key"), 400
 
             # Verify challenge: client signs the grant with their private key
@@ -202,14 +209,16 @@ def register_routes_v2(app: APIFlask) -> None:
                 # where the payload matches the grant.
                 challenge_payload = jwt.decode(
                     data.challenge,
-                    restore_rsa_key(client_public_key),
+                    client_public_key,
                     algorithms=["RS256"]
                 )
 
                 if challenge_payload.get("grant") != data.grant:
+                    logging.warning(f"Token exchange failed: challenge grant mismatch. IP: {request.remote_addr}")
                     return ErrorResponse("Challenge grant mismatch"), 400
 
             except jwt.InvalidTokenError as e:
+                logging.warning(f"Token exchange failed: challenge verification failed ({e}). IP: {request.remote_addr}")
                 return ErrorResponse(f"Challenge verification failed: {e}"), 400
 
             user = User(
@@ -222,6 +231,7 @@ def register_routes_v2(app: APIFlask) -> None:
             token = generate_token(user, 0)
 
             return TokenExchangeResponse(
+                status="success",
                 message="Token exchanged successfully",
                 username=user.username,
                 groups=user.groups,

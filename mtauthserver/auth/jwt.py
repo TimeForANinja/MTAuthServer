@@ -38,7 +38,7 @@ def decode_token(token: str) -> Optional[User]:
     """
     Decode (and verify) a JWT token.
 
-    :param token: The JWT token to decode.
+    :param token: The JWT token to decode (without the "Bearer " prefix).
     :return: The User object if the token is valid, None otherwise.
     """
     try:
@@ -55,7 +55,7 @@ def decode_token(token: str) -> Optional[User]:
             scopes=decoded_token.get("scopes")
         )
     except jwt.ExpiredSignatureError:
-        logging.error("Topen expired")
+        logging.warning("Token expired")
     except jwt.InvalidTokenError as e:
         logging.error(f"Invalid token: {e}")
     except Exception as e:

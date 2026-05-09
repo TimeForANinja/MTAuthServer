@@ -1,4 +1,9 @@
 import base64
+from typing import Tuple
+
+from cryptography.hazmat.primitives.asymmetric import rsa
+from cryptography.hazmat.primitives import serialization
+
 
 def minimize_rsa_key(pem_key: str) -> str:
     # 1. Remove PEM headers, footers and whitespace/newlines
@@ -24,6 +29,27 @@ def restore_rsa_key(minimzed_key: str) -> str:
     raw_der = base64.urlsafe_b64decode(minimzed_key)
 
     # Re-encode to standard B64 for PEM format
-    b64_str = base64.urlsafe_b64encode(raw_der).decode('utf-8')
+    b64_str = base64.b64encode(raw_der).decode('utf-8')
+
+    # Split into lines for PEM format
+    b64_str = "\n".join([b64_str[i:i+64] for i in range(0, len(b64_str), 64)])
 
     return "-----BEGIN PUBLIC KEY-----\n" + b64_str + "\n-----END PUBLIC KEY-----"
+
+def generate_dummy_keypair() -> Tuple[str, str]:
+    """
+    Generate a dummy RSA keypair for testing purposes.
+    In production, you should use static keypair and import it via env.
+    :return:
+    """
+    private_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+    priv_pem = private_key.private_bytes(
+        encoding=serialization.Encoding.PEM,
+        format=serialization.PrivateFormat.TraditionalOpenSSL,
+        encryption_algorithm=serialization.NoEncryption()
+    ).decode('utf-8')
+    pub_pem = private_key.public_key().public_bytes(
+        encoding=serialization.Encoding.PEM,
+        format=serialization.PublicFormat.SubjectPublicKeyInfo
+    ).decode('utf-8')
+    return priv_pem, pub_pem

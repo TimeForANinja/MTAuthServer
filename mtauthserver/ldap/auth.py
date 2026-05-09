@@ -1,4 +1,6 @@
 from ldap3 import Connection, RESTARTABLE
+import logging
+
 from .client import get_user_dn
 from .connection import get_ldap_pool
 
@@ -29,5 +31,6 @@ def check_credentials(conn: Connection, username: str, password: str) -> bool:
         # If auto_bind=True, and it didn't raise, then authentication succeeded
         temp_conn.unbind()
         return True
-    except Exception:
+    except Exception as e:
+        logging.error(f"LDAP authentication failed for DN {user_dn}: {e}")
         return False
