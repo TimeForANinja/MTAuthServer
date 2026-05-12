@@ -5,7 +5,7 @@ from apiflask.validators import OneOf
 from marshmallow.validate import Length, Regexp
 from marshmallow_dataclass import class_schema
 
-from shared_util import to_field, desc
+from shared_util import to_field, desc, JWT_HEADER_NAME
 
 
 @dataclass
@@ -56,7 +56,6 @@ class SuccessResponse(GenericOutput):
         # to set the status to "success" automatically for all dataclasses
         # that inherit from this class
         self.status = "success"
-        # TODO: check if the legacy API used "valid" or "success"
 
 SuccessResponseSchema = class_schema(SuccessResponse)()
 
@@ -65,8 +64,8 @@ SuccessResponseSchema = class_schema(SuccessResponse)()
 class JWTHeaderInput:
     jwt_token: str = to_field(String(
         required=True,
-        # overwrite the key, since flask hates "_" in headers
-        data_key="jwt-token",
+        # overwrite the key, since a= flask hates "_" in headers and b) it's stored in the Authorization-Header
+        data_key=JWT_HEADER_NAME,
         validate=[
             Length(min=5, max=10000),
             Regexp(

@@ -1,7 +1,7 @@
 from apiflask import HTTPTokenAuth
 from typing import Optional, List, Callable
 
-from shared_util import V2TokenData
+from shared_util import V2TokenData, JWT_HEADER_NAME
 
 
 def build_flask_auth(verify_func: Callable[[str], Optional[V2TokenData]]):
@@ -12,8 +12,7 @@ def build_flask_auth(verify_func: Callable[[str], Optional[V2TokenData]]):
     """
     auth = HTTPTokenAuth(
         scheme="Bearer",
-        # TODO: check if the legacy API used "jwt-token" or "Authorization"
-        header="Authorization",
+        header=JWT_HEADER_NAME,
     )
 
     @auth.get_user_roles

@@ -1,5 +1,4 @@
 # custom
-.env
 *.pem
 
 # predefined (by github)

@@ -1,5 +1,5 @@
 import logging
-from typing import Union, List, Optional, cast, Mapping, Any, Tuple
+from typing import Union, List, Optional, cast, Mapping, Any
 from flask import render_template, request, redirect, current_app, Response
 from apiflask import APIBlueprint, APIFlask
 from marshmallow import ValidationError
